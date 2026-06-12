@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: almousa-whatsapp-agent
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ULTRAMSG_INSTANCE_ID
+        value: instance179001
+      - key: ULTRAMSG_TOKEN
+        sync: false
+      - key: RECEPTION_PHONE
+        value: "971509788772"
+      - key: PORT
+        value: "3300"
