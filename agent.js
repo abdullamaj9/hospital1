@@ -70,8 +70,8 @@ function genBookingId() {
   return "BK" + Date.now();
 }
 
-// تنسيق رد موحّد: نص + أزرار اختيارية + نوع حقل الإدخال (text/date)
-function reply(text, options = [], inputType = "text") {
+// تنسيق رد موحّد: نص + أزرار اختيارية + نوع حقل الإدخال (none/text/date)
+function reply(text, options = [], inputType = "none") {
   return { text, options, inputType };
 }
 
@@ -303,43 +303,43 @@ async function handleBookingTime(phone, conversation, text, lang) {
   conversation.data.time = time;
   conversation.state = "booking_name";
   store.saveConversation(phone, conversation);
-  return reply(`${t(lang, "fieldTime")}: *${time}*\n\n${t(lang, "enterName")}`, []);
+  return reply(`${t(lang, "fieldTime")}: *${time}*\n\n${t(lang, "enterName")}`, [], "text");
 }
 
 async function handleBookingName(phone, conversation, text, lang) {
   const name = text.trim();
   if (name.length < 2) {
-    return reply(t(lang, "invalidName"), []);
+    return reply(t(lang, "invalidName"), [], "text");
   }
   conversation.data.name = name;
 
   if (String(phone).startsWith("web-")) {
     conversation.state = "booking_phone";
     store.saveConversation(phone, conversation);
-    return reply(`${t(lang, "fieldName")}: *${name}*\n\n${t(lang, "enterPhone")}`, []);
+    return reply(`${t(lang, "fieldName")}: *${name}*\n\n${t(lang, "enterPhone")}`, [], "text");
   }
 
   conversation.state = "booking_age";
   store.saveConversation(phone, conversation);
-  return reply(`${t(lang, "fieldName")}: *${name}*\n\n${t(lang, "enterAge")}`, []);
+  return reply(`${t(lang, "fieldName")}: *${name}*\n\n${t(lang, "enterAge")}`, [], "text");
 }
 
 async function handleBookingPhone(phone, conversation, text, lang) {
   const raw = text.trim();
   const digits = raw.replace(/[^\d]/g, "");
   if (digits.length < 7) {
-    return reply(t(lang, "invalidPhone"), []);
+    return reply(t(lang, "invalidPhone"), [], "text");
   }
   conversation.data.contactPhone = raw;
   conversation.state = "booking_age";
   store.saveConversation(phone, conversation);
-  return reply(`${t(lang, "fieldPhone")}: *${raw}*\n\n${t(lang, "enterAge")}`, []);
+  return reply(`${t(lang, "fieldPhone")}: *${raw}*\n\n${t(lang, "enterAge")}`, [], "text");
 }
 
 async function handleBookingAge(phone, conversation, text, lang) {
   const age = parseInt(text.trim(), 10);
   if (isNaN(age) || age < 0 || age > 120) {
-    return reply(t(lang, "invalidAge"), []);
+    return reply(t(lang, "invalidAge"), [], "text");
   }
   conversation.data.age = age;
   conversation.state = "booking_gender";
@@ -368,7 +368,7 @@ async function handleBookingGender(phone, conversation, text, lang) {
   const genderLabel = gender === "male" ? t(lang, "male") : t(lang, "female");
   return reply(`${t(lang, "fieldGender")}: *${genderLabel}*\n\n${t(lang, "enterReason")}`, [
     { label: t(lang, "skip"), value: "skip" },
-  ]);
+  ], "text");
 }
 
 async function handleBookingReason(phone, conversation, text, lang) {

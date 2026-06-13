@@ -90,8 +90,11 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
 
     const hasOptions = options && options.length > 0;
     const isDateStep = inputType === "date";
+    const isTextStep = inputType === "text";
+    // إظهار حقل الإدخال إذا: الخطوة تطلب نصاً أو تاريخاً صريحاً، أو لا توجد أزرار أصلاً (احتياط)
+    const showInput = isDateStep || isTextStep || !hasOptions;
 
-    // أزرار الخيارات (مثل "القائمة الرئيسية") تظهر دائماً إن وُجدت
+    // أزرار الخيارات تظهر إن وُجدت
     if (hasOptions) {
       options.forEach((opt) => {
         const btn = document.createElement("button");
@@ -105,8 +108,7 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       wrap.style.display = "none";
     }
 
-    // حقل الإدخال يظهر إذا: لا توجد خيارات (نص حر)، أو الخطوة تتطلب تاريخاً (حتى مع وجود زر رجوع)
-    if (!hasOptions || isDateStep) {
+    if (showInput) {
       form.style.display = "flex";
       input.disabled = false;
 
