@@ -92,6 +92,8 @@ const STRINGS = {
     handoffMsg: "🔄 تم تحويل طلبك إلى *موظف الاستقبال* وسيتواصل معك قريباً.",
     handoffPhoneNote: (phone) => `يمكنك أيضاً التواصل مباشرة على: ${phone}`,
     backToMenu: "🔙 القائمة الرئيسية",
+    closeChat: "✅ إنهاء المحادثة",
+    closeChatMsg: "شكراً لتواصلك مع مستشفى الموسي التخصصي 🌟 نتمنى لك الصحة والعافية. يمكنك إغلاق النافذة، أو الضغط على \"القائمة الرئيسية\" إذا احتجت مساعدة أخرى.",
 
     genericError: "⚠️ لم أتمكن من فهم طلبك. اختر من القائمة:",
 
@@ -192,6 +194,8 @@ const STRINGS = {
     handoffMsg: "🔄 Your request has been transferred to *reception staff* and they will contact you shortly.",
     handoffPhoneNote: (phone) => `You can also contact us directly at: ${phone}`,
     backToMenu: "🔙 Main menu",
+    closeChat: "✅ End conversation",
+    closeChatMsg: "Thank you for contacting Al Mousa Specialty Hospital 🌟 Wishing you good health. You can close this window, or tap \"Main menu\" if you need anything else.",
 
     genericError: "⚠️ I couldn't understand your request. Choose from the menu:",
 

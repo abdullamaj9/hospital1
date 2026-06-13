@@ -136,6 +136,29 @@ app.get("/api/bookings", (req, res) => {
   res.json(store.getBookings());
 });
 
+// تحديث حالة حجز (من لوحة الإدارة)
+app.patch("/api/bookings/:id", (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body || {};
+  const allowed = ["جديد", "مؤكد", "مكتمل", "ملغى"];
+  if (!status || !allowed.includes(status)) {
+    return res.status(400).json({ status: "error", message: "حالة غير صالحة" });
+  }
+  const updated = store.updateBooking(id, { status });
+  if (!updated) return res.status(404).json({ status: "error", message: "الحجز غير موجود" });
+  res.json({ status: "ok", booking: updated });
+});
+
+// حذف حجز (من لوحة الإدارة)
+app.delete("/api/bookings/:id", (req, res) => {
+  const { id } = req.params;
+  const bookings = store.getBookings();
+  const exists = bookings.some((b) => b.id === id);
+  if (!exists) return res.status(404).json({ status: "error", message: "الحجز غير موجود" });
+  store.saveBookings(bookings.filter((b) => b.id !== id));
+  res.json({ status: "ok" });
+});
+
 // عرض سجل التحويلات لموظف الاستقبال
 app.get("/api/handoffs", (req, res) => {
   res.json(store.getHandoffs());

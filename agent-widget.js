@@ -235,6 +235,12 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       setTyping(false);
       appendMessage(response.text, "bot");
       renderOptions(response.options, handleSelection, response.inputType);
+
+      if (value === "close") {
+        setTimeout(() => {
+          if (opened) closeChat();
+        }, 2200);
+      }
     }
 
     toggleBtn.addEventListener("click", () => {

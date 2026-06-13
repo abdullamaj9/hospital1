@@ -91,6 +91,11 @@
 }
 .admin-header h2 { font-size: 1.8rem; margin-bottom: 4px; }
 .admin-sub { color: var(--text-light); font-size: 0.92rem; }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .header-actions select {
   padding: 10px 16px;
   border-radius: 10px;

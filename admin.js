@@ -2,13 +2,54 @@
 
 const ADMIN_CREDENTIALS = { username: "admin", password: "almousa2026" };
 const STORAGE_KEYS = { bookings: "almousa_bookings", messages: "almousa_messages", session: "almousa_admin_session" };
+const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // رابط سيرفر إيجنت الواتساب/الموقع على Render
 
 // ---------- Helpers ----------
-function getBookings() {
+function getLocalBookings() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.bookings)) || []; }
   catch { return []; }
 }
-function saveBookings(list) { localStorage.setItem(STORAGE_KEYS.bookings, JSON.stringify(list)); }
+function saveLocalBookings(list) { localStorage.setItem(STORAGE_KEYS.bookings, JSON.stringify(list)); }
+
+// جلب حجوزات الإيجنت (واتساب + شات الموقع) من سيرفر Render
+async function getAgentBookings() {
+  try {
+    const res = await fetch(`${AGENT_API_BASE}/api/bookings`);
+    if (!res.ok) throw new Error("network");
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.warn("⚠️ تعذر جلب حجوزات الإيجنت من Render:", err.message);
+    return null; // null = فشل الجلب (مختلف عن مصفوفة فاضية)
+  }
+}
+
+// دمج حجوزات الموقع (localStorage) مع حجوزات الإيجنت (Render) بدون تكرار
+function mergeBookings(localList, agentList) {
+  const merged = [...localList];
+  const localIds = new Set(localList.map((b) => b.id));
+  (agentList || []).forEach((b) => {
+    if (!localIds.has(b.id)) merged.push(b);
+  });
+  return merged;
+}
+
+// متغير يحتفظ بآخر نسخة مدموجة من الحجوزات (تُحدّث عند initDashboard وبعد كل تحديث/حذف)
+let CACHED_BOOKINGS = [];
+let AGENT_OFFLINE = false;
+
+async function refreshBookingsCache() {
+  const local = getLocalBookings();
+  const agent = await getAgentBookings();
+  AGENT_OFFLINE = agent === null;
+  CACHED_BOOKINGS = mergeBookings(local, agent || []);
+  return CACHED_BOOKINGS;
+}
+
+// تُستخدم بدلاً من القراءة المباشرة من localStorage في كل أماكن العرض
+function getBookings() {
+  return CACHED_BOOKINGS;
+}
 
 function getMessages() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.messages)) || []; }
@@ -124,12 +165,19 @@ function renderOverview() {
 }
 
 // ---------- الحجوزات ----------
+function isAgentBooking(b) {
+  return b.source === "إيجنت واتساب" || b.source === "إيجنت الموقع";
+}
+
 function renderBookings() {
   const filter = document.getElementById("bookingStatusFilter").value;
-  const bookings = getBookings().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const bookings = getBookings().slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   const filtered = filter === "all" ? bookings : bookings.filter(b => b.status === filter);
   const tbody = document.querySelector("#bookingsTable tbody");
   const emptyEl = document.getElementById("bookingsEmpty");
+  const offlineEl = document.getElementById("agentOfflineNotice");
+
+  if (offlineEl) offlineEl.style.display = AGENT_OFFLINE ? "block" : "none";
 
   if (filtered.length === 0) {
     tbody.innerHTML = "";
@@ -139,7 +187,7 @@ function renderBookings() {
   emptyEl.style.display = "none";
 
   tbody.innerHTML = filtered.map(b => `
-    <tr data-id="${b.id}">
+    <tr data-id="${b.id}" data-source="${isAgentBooking(b) ? 'agent' : 'local'}">
       <td>${b.id}</td>
       <td>${b.name}</td>
       <td>${b.phone}</td>
@@ -163,32 +211,90 @@ function renderBookings() {
 
   // تحديث الحالة
   tbody.querySelectorAll('select[data-action="status"]').forEach(sel => {
-    sel.addEventListener("change", () => {
-      const id = sel.closest("tr").dataset.id;
-      const list = getBookings();
-      const idx = list.findIndex(b => b.id === id);
-      if (idx > -1) {
-        list[idx].status = sel.value;
-        saveBookings(list);
-        showToast("تم تحديث حالة الحجز");
-        renderBookings();
-        renderOverview();
+    sel.addEventListener("change", async () => {
+      const tr = sel.closest("tr");
+      const id = tr.dataset.id;
+      const source = tr.dataset.source;
+      const newStatus = sel.value;
+
+      if (source === "agent") {
+        if (AGENT_OFFLINE) {
+          showToast("⚠️ لا يمكن التحديث: تعذر الاتصال بسيرفر الإيجنت", true);
+          return;
+        }
+        const ok = await updateAgentBookingStatus(id, newStatus);
+        if (!ok) {
+          showToast("⚠️ فشل تحديث الحجز على سيرفر الإيجنت", true);
+          return;
+        }
+      } else {
+        const list = getLocalBookings();
+        const idx = list.findIndex(b => b.id === id);
+        if (idx > -1) {
+          list[idx].status = newStatus;
+          saveLocalBookings(list);
+        }
       }
+
+      showToast("تم تحديث حالة الحجز");
+      await refreshBookingsCache();
+      renderBookings();
+      renderOverview();
     });
   });
 
   // حذف
   tbody.querySelectorAll('button[data-action="delete"]').forEach(btn => {
-    btn.addEventListener("click", () => {
-      const id = btn.closest("tr").dataset.id;
+    btn.addEventListener("click", async () => {
+      const tr = btn.closest("tr");
+      const id = tr.dataset.id;
+      const source = tr.dataset.source;
       if (!confirm("هل أنت متأكد من حذف هذا الحجز؟")) return;
-      const list = getBookings().filter(b => b.id !== id);
-      saveBookings(list);
+
+      if (source === "agent") {
+        if (AGENT_OFFLINE) {
+          showToast("⚠️ لا يمكن الحذف: تعذر الاتصال بسيرفر الإيجنت", true);
+          return;
+        }
+        const ok = await deleteAgentBooking(id);
+        if (!ok) {
+          showToast("⚠️ فشل حذف الحجز من سيرفر الإيجنت", true);
+          return;
+        }
+      } else {
+        const list = getLocalBookings().filter(b => b.id !== id);
+        saveLocalBookings(list);
+      }
+
       showToast("تم حذف الحجز");
+      await refreshBookingsCache();
       renderBookings();
       renderOverview();
     });
   });
+}
+
+// ---------- استدعاءات API للحجوزات على Render ----------
+async function updateAgentBookingStatus(id, status) {
+  try {
+    const res = await fetch(`${AGENT_API_BASE}/api/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function deleteAgentBooking(id) {
+  try {
+    const res = await fetch(`${AGENT_API_BASE}/api/bookings/${id}`, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ---------- الرسائل ----------
@@ -257,15 +363,34 @@ function renderDepartmentsAdmin() {
 }
 
 // ---------- تهيئة اللوحة ----------
-function initDashboard() {
+async function initDashboard() {
   setupNav();
-  renderOverview();
-  renderBookings();
-  renderMessages();
   renderDoctorsAdmin();
   renderDepartmentsAdmin();
 
+  showToast("⏳ جاري تحميل الحجوزات...");
+  await refreshBookingsCache();
+
+  renderOverview();
+  renderBookings();
+  renderMessages();
+
+  if (AGENT_OFFLINE) {
+    showToast("⚠️ تعذر الاتصال بسيرفر الإيجنت - تُعرض حجوزات الموقع فقط", true);
+  }
+
   document.getElementById("bookingStatusFilter").addEventListener("change", renderBookings);
+
+  const refreshBtn = document.getElementById("refreshBookingsBtn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", async () => {
+      showToast("⏳ جاري التحديث...");
+      await refreshBookingsCache();
+      renderOverview();
+      renderBookings();
+      showToast(AGENT_OFFLINE ? "⚠️ تعذر الاتصال بسيرفر الإيجنت" : "✅ تم التحديث");
+    });
+  }
 }
 
 document.addEventListener("DOMContentLoaded", setupLogin);

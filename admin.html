@@ -113,7 +113,7 @@
       <div class="admin-header">
         <div>
           <h2>إدارة الحجوزات</h2>
-          <p class="admin-sub">عرض، تعديل حالة، وحذف الحجوزات الواردة</p>
+          <p class="admin-sub">عرض، تعديل حالة، وحذف الحجوزات الواردة من الموقع والإيجنت (واتساب + شات الموقع)</p>
         </div>
         <div class="header-actions">
           <select id="bookingStatusFilter">
@@ -123,8 +123,12 @@
             <option value="مكتمل">مكتمل</option>
             <option value="ملغى">ملغى</option>
           </select>
+          <button id="refreshBookingsBtn" class="btn btn-ghost btn-sm">🔄 تحديث</button>
         </div>
       </div>
+      <p class="empty-state" id="agentOfflineNotice" style="display:none; color:#C0392B;">
+        ⚠️ تعذر الاتصال بسيرفر الإيجنت على Render — تُعرض حالياً حجوزات الموقع فقط. قد يكون السيرفر في وضع السكون (الخطة المجانية)، حاول "تحديث" بعد دقيقة.
+      </p>
       <div class="admin-card">
         <div class="table-wrap">
           <table class="data-table" id="bookingsTable">

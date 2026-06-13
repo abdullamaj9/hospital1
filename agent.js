@@ -99,6 +99,15 @@ function backToMenuOption(lang) {
   return { label: t(lang, "backToMenu"), value: "menu" };
 }
 
+function closeChatOption(lang) {
+  return { label: t(lang, "closeChat"), value: "close" };
+}
+
+// خيارات تُعرض بعد اكتمال عملية (حجز/تعديل/إلغاء): رجوع للقائمة أو إنهاء المحادثة
+function completionOptions(lang) {
+  return [backToMenuOption(lang), closeChatOption(lang)];
+}
+
 // ===================== الأقسام والأطباء =====================
 
 function departmentsOptions(lang) {
@@ -410,7 +419,7 @@ async function handleBookingConfirm(phone, conversation, text, lang) {
     conversation.state = "idle";
     conversation.data = {};
     store.saveConversation(phone, conversation);
-    return reply(t(lang, "bookingCancelledMsg"), mainMenuOptions(lang));
+    return reply(t(lang, "bookingCancelledMsg"), completionOptions(lang));
   }
 
   if (t_ !== "confirm" && !t_.includes("تأكيد") && !t_.includes("نعم") && t_ !== "yes" && t_ !== "1") {
@@ -462,7 +471,7 @@ async function handleBookingConfirm(phone, conversation, text, lang) {
     `${t(lang, "fieldTime")}: ${booking.time}\n\n` +
     `${t(lang, "keepBookingId")}`;
 
-  return reply(text2, mainMenuOptions(lang));
+  return reply(text2, completionOptions(lang));
 }
 
 // ===================== تعديل / إلغاء الموعد =====================
@@ -514,7 +523,7 @@ async function handleCancelSelect(phone, conversation, text, lang) {
   store.saveConversation(phone, conversation);
 
   const text2 = `${t(lang, "bookingCancelledSuccess", bookingId)}\n(${booking.doctorName} - ${booking.date} ${booking.time})`;
-  return reply(text2, mainMenuOptions(lang));
+  return reply(text2, completionOptions(lang));
 }
 
 async function handleModifySelect(phone, conversation, text, lang) {
@@ -591,7 +600,7 @@ async function handleModifyTime(phone, conversation, text, lang) {
     `${t(lang, "to")}: *${newDate} ${time}*\n` +
     `${t(lang, "fieldDoctor")}: ${booking.doctorName}`;
 
-  return reply(text2, mainMenuOptions(lang));
+  return reply(text2, completionOptions(lang));
 }
 
 // ===================== التحقق من التوفر (بدون حجز) =====================
@@ -691,6 +700,14 @@ async function processMessage(phone, rawText) {
     conversation.data = {};
     store.saveConversation(phone, conversation);
     return welcomeMessage(lang);
+  }
+
+  // ----- إنهاء المحادثة -----
+  if (tLower === "close") {
+    conversation.state = "idle";
+    conversation.data = {};
+    store.saveConversation(phone, conversation);
+    return reply(t(lang, "closeChatMsg"), [backToMenuOption(lang)]);
   }
 
   // ----- التحويل لموظف الاستقبال -----
