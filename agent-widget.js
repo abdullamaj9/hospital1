@@ -88,8 +88,11 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
     const input = document.getElementById("agentChatInput");
     wrap.innerHTML = "";
 
-    if (options && options.length > 0) {
-      // عرض الأزرار، وإخفاء حقل الكتابة (التنقل بالأزرار فقط)
+    const hasOptions = options && options.length > 0;
+    const isDateStep = inputType === "date";
+
+    // أزرار الخيارات (مثل "القائمة الرئيسية") تظهر دائماً إن وُجدت
+    if (hasOptions) {
       options.forEach((opt) => {
         const btn = document.createElement("button");
         btn.className = "agent-option-btn";
@@ -98,14 +101,16 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
         wrap.appendChild(btn);
       });
       wrap.style.display = "flex";
-      form.style.display = "none";
     } else {
-      // لا خيارات = خطوة تتطلب إدخال (اسم، هاتف، عمر، سبب الزيارة، أو تاريخ عبر التقويم)
       wrap.style.display = "none";
+    }
+
+    // حقل الإدخال يظهر إذا: لا توجد خيارات (نص حر)، أو الخطوة تتطلب تاريخاً (حتى مع وجود زر رجوع)
+    if (!hasOptions || isDateStep) {
       form.style.display = "flex";
       input.disabled = false;
 
-      if (inputType === "date") {
+      if (isDateStep) {
         input.type = "date";
         const today = new Date().toISOString().split("T")[0];
         input.min = today;
@@ -117,8 +122,11 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       }
 
       input.focus();
+    } else {
+      form.style.display = "none";
     }
   }
+
 
   // ---------- إرسال رسالة للسيرفر ----------
   async function sendToAgent(message) {
