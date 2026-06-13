@@ -70,9 +70,9 @@ function genBookingId() {
   return "BK" + Date.now();
 }
 
-// تنسيق رد موحّد: نص + أزرار اختيارية
-function reply(text, options = []) {
-  return { text, options };
+// تنسيق رد موحّد: نص + أزرار اختيارية + نوع حقل الإدخال (text/date)
+function reply(text, options = [], inputType = "text") {
+  return { text, options, inputType };
 }
 
 // ===================== القائمة الرئيسية =====================
@@ -250,18 +250,19 @@ async function handleBookingDoctor(phone, conversation, text, lang) {
   conversation.state = "booking_date";
   store.saveConversation(phone, conversation);
   return reply(
-    `✅ ${lang === "en" ? "Selected" : "اختيارك"}: *${doctorName(doctor, lang)}* (${doctorTitle(doctor, lang)})\n\n${t(lang, "chooseDate")}\n${lang === "en" ? "(Format: YYYY-MM-DD, e.g. 2026-06-20)" : "(الصيغة: YYYY-MM-DD، مثال: 2026-06-20)"}`,
-    [backToMenuOption(lang)]
+    `✅ ${lang === "en" ? "Selected" : "اختيارك"}: *${doctorName(doctor, lang)}* (${doctorTitle(doctor, lang)})\n\n${t(lang, "chooseDate")}`,
+    [backToMenuOption(lang)],
+    "date"
   );
 }
 
 async function handleBookingDate(phone, conversation, text, lang) {
   const date = isValidDate(text);
   if (!date) {
-    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)]);
+    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)], "date");
   }
   if (isPastDate(date)) {
-    return reply(t(lang, "pastDate"), [backToMenuOption(lang)]);
+    return reply(t(lang, "pastDate"), [backToMenuOption(lang)], "date");
   }
   conversation.data.date = date;
 
@@ -269,7 +270,7 @@ async function handleBookingDate(phone, conversation, text, lang) {
   const options = timeSlotsOptions(conversation.data.doctorId, date, lang);
 
   if (options.length === 0) {
-    return reply(t(lang, "allSlotsTaken", doctorName(doctor, lang)), [backToMenuOption(lang)]);
+    return reply(t(lang, "allSlotsTaken", doctorName(doctor, lang)), [backToMenuOption(lang)], "date");
   }
 
   conversation.state = "booking_time";
@@ -525,16 +526,16 @@ async function handleModifySelect(phone, conversation, text, lang) {
   conversation.state = "modify_date";
   store.saveConversation(phone, conversation);
 
-  return reply(`${t(lang, "modifyChooseNewDate")}\n${lang === "en" ? "(Format: YYYY-MM-DD)" : "(الصيغة: YYYY-MM-DD)"}`, [backToMenuOption(lang)]);
+  return reply(t(lang, "modifyChooseNewDate"), [backToMenuOption(lang)], "date");
 }
 
 async function handleModifyDate(phone, conversation, text, lang) {
   const date = isValidDate(text);
   if (!date) {
-    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)]);
+    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)], "date");
   }
   if (isPastDate(date)) {
-    return reply(t(lang, "pastDate"), [backToMenuOption(lang)]);
+    return reply(t(lang, "pastDate"), [backToMenuOption(lang)], "date");
   }
   conversation.data.newDate = date;
 
@@ -543,7 +544,7 @@ async function handleModifyDate(phone, conversation, text, lang) {
   const options = timeSlotsOptions(booking.doctorId, date, lang, bookingId);
 
   if (options.length === 0) {
-    return reply(t(lang, "allSlotsTaken", booking.doctorName), [backToMenuOption(lang)]);
+    return reply(t(lang, "allSlotsTaken", booking.doctorName), [backToMenuOption(lang)], "date");
   }
 
   conversation.state = "modify_time";
@@ -626,13 +627,13 @@ async function handleAvailDoctor(phone, conversation, text, lang) {
   conversation.data.doctorId = doctor.id;
   conversation.state = "avail_date";
   store.saveConversation(phone, conversation);
-  return reply(`${t(lang, "availDateQuestion")}\n${lang === "en" ? "(Format: YYYY-MM-DD)" : "(الصيغة: YYYY-MM-DD)"}`, [backToMenuOption(lang)]);
+  return reply(t(lang, "availDateQuestion"), [backToMenuOption(lang)], "date");
 }
 
 async function handleAvailDate(phone, conversation, text, lang) {
   const date = isValidDate(text);
   if (!date) {
-    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)]);
+    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)], "date");
   }
   const doctor = findDoctorById(conversation.data.doctorId);
   const available = TIME_SLOTS.filter((time) => !store.isSlotTaken(conversation.data.doctorId, date, time));

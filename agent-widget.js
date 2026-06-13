@@ -82,7 +82,7 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
   }
 
   // ---------- عرض أزرار الخيارات ----------
-  function renderOptions(options, onSelect) {
+  function renderOptions(options, onSelect, inputType) {
     const wrap = document.getElementById("agentChatOptions");
     const form = document.getElementById("agentChatForm");
     const input = document.getElementById("agentChatInput");
@@ -100,10 +100,22 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       wrap.style.display = "flex";
       form.style.display = "none";
     } else {
-      // لا خيارات = خطوة تتطلب إدخال نص (اسم، هاتف، عمر، تاريخ، سبب الزيارة)
+      // لا خيارات = خطوة تتطلب إدخال (اسم، هاتف، عمر، سبب الزيارة، أو تاريخ عبر التقويم)
       wrap.style.display = "none";
       form.style.display = "flex";
       input.disabled = false;
+
+      if (inputType === "date") {
+        input.type = "date";
+        const today = new Date().toISOString().split("T")[0];
+        input.min = today;
+        input.placeholder = "";
+      } else {
+        input.type = "text";
+        input.removeAttribute("min");
+        input.placeholder = currentLang === "en" ? "Type your message..." : "اكتب رسالتك هنا...";
+      }
+
       input.focus();
     }
   }
@@ -119,14 +131,14 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       });
       if (!res.ok) throw new Error("network");
       const data = await res.json();
-      return { text: data.text || data.reply, options: data.options || [] };
+      return { text: data.text || data.reply, options: data.options || [], inputType: data.inputType || "text" };
     } catch (err) {
       console.error("خطأ في الاتصال بالمساعد الذكي:", err);
       const errMsg =
         currentLang === "en"
           ? "⚠️ Couldn't connect to the smart assistant right now. Please try again later or contact us on WhatsApp at 0566350025."
           : "⚠️ تعذر الاتصال بالمساعد الذكي حالياً. يرجى المحاولة لاحقاً أو التواصل عبر واتساب على 0566350025.";
-      return { text: errMsg, options: [] };
+      return { text: errMsg, options: [], inputType: "text" };
     }
   }
 
@@ -135,13 +147,13 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       const res = await fetch(`${AGENT_API_BASE}/api/chat/welcome?lang=${lang}`);
       if (!res.ok) throw new Error("network");
       const data = await res.json();
-      return { text: data.text || data.reply, options: data.options || [] };
+      return { text: data.text || data.reply, options: data.options || [], inputType: data.inputType || "text" };
     } catch {
       const fallback =
         lang === "en"
           ? "🏥 *Welcome to Al Mousa Specialty Hospital* ✚\n\nHow can I help you?"
           : "🏥 *مرحباً بك في مستشفى الموسي التخصصي* ✚\n\nكيف يمكنني مساعدتك؟";
-      return { text: fallback, options: [] };
+      return { text: fallback, options: [], inputType: "text" };
     }
   }
 
@@ -182,7 +194,7 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       const welcome = await fetchWelcome(lang);
       setTyping(false);
       appendMessage(welcome.text, "bot");
-      renderOptions(welcome.options, handleSelection);
+      renderOptions(welcome.options, handleSelection, welcome.inputType);
     }
 
     async function openChat() {
@@ -212,7 +224,7 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
 
       setTyping(false);
       appendMessage(response.text, "bot");
-      renderOptions(response.options, handleSelection);
+      renderOptions(response.options, handleSelection, response.inputType);
     }
 
     toggleBtn.addEventListener("click", () => {
@@ -243,7 +255,7 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       setTyping(false);
       appendMessage(response.text, "bot");
       input.disabled = false;
-      renderOptions(response.options, handleSelection);
+      renderOptions(response.options, handleSelection, response.inputType);
     });
   }
 

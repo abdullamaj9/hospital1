@@ -68,10 +68,10 @@ app.post("/api/chat", async (req, res) => {
       const fallback = lang === "en"
         ? "You've been transferred to reception staff, they will respond shortly."
         : "تم تحويلك إلى موظف الاستقبال، سيتم الرد عليك قريباً.";
-      return res.json({ status: "ok", reply: fallback, text: fallback, options: [] });
+      return res.json({ status: "ok", reply: fallback, text: fallback, options: [], inputType: "text" });
     }
 
-    return res.json({ status: "ok", reply: response.text, text: response.text, options: response.options || [] });
+    return res.json({ status: "ok", reply: response.text, text: response.text, options: response.options || [], inputType: response.inputType || "text" });
   } catch (err) {
     console.error("❌ خطأ في /api/chat:", err);
     return res.status(500).json({ status: "error", message: err.message });
@@ -82,7 +82,7 @@ app.post("/api/chat", async (req, res) => {
 app.get("/api/chat/welcome", (req, res) => {
   const lang = req.query.lang === "en" ? "en" : "ar";
   const response = welcomeMessage(lang);
-  res.json({ status: "ok", reply: response.text, text: response.text, options: response.options || [] });
+  res.json({ status: "ok", reply: response.text, text: response.text, options: response.options || [], inputType: response.inputType || "text" });
 });
 
 // ===================== Webhook استقبال رسائل واتساب من UltraMsg =====================
