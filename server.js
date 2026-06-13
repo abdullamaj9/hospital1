@@ -11,6 +11,32 @@ app.use(express.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 3300;
 const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID || "instance179001";
 
+// تحويل رد {text, options} إلى نص واتساب عادي مع ترقيم الخيارات
+function formatForWhatsApp(response) {
+  if (!response) return null;
+  let text = response.text || "";
+  if (response.options && response.options.length > 0) {
+    text += "\n\n";
+    response.options.forEach((opt, i) => {
+      text += `${i + 1}. ${opt.label}\n`;
+    });
+    text += "\n" + (text.includes("اختر") || /[ء-ي]/.test(text) ? "✏️ اكتب رقم الخيار المطلوب." : "✏️ Type the option number.");
+  }
+  return text.trim();
+}
+
+// خريطة: عند رسالة واتساب، إذا كانت رقماً وكانت آخر استجابة فيها options، حوّل الرقم إلى value المطابق
+function resolveWhatsAppSelection(phone, text) {
+  const conversation = store.getConversation(phone);
+  const lastOptions = conversation.lastOptions || [];
+  const num = parseInt(String(text).trim(), 10);
+  if (!isNaN(num) && lastOptions[num - 1]) {
+    return lastOptions[num - 1].value;
+  }
+  return text;
+}
+
+
 // ===================== CORS (للسماح للموقع بالاتصال بالإيجنت) =====================
 // مسموح لكل المصادر لأن الموقع مستضاف على GitHub Pages (نطاق ثابت غير حساس)
 app.use((req, res, next) => {
@@ -34,9 +60,18 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ status: "error", message: "message مطلوب" });
     }
 
-    const reply = await processMessage(sessionId, message);
+    const response = await processMessage(sessionId, message);
 
-    return res.json({ status: "ok", reply: reply || "تم تحويلك إلى موظف الاستقبال، سيتم الرد عليك قريباً." });
+    if (!response) {
+      const conversation = store.getConversation(sessionId);
+      const lang = conversation.lang || "ar";
+      const fallback = lang === "en"
+        ? "You've been transferred to reception staff, they will respond shortly."
+        : "تم تحويلك إلى موظف الاستقبال، سيتم الرد عليك قريباً.";
+      return res.json({ status: "ok", reply: fallback, text: fallback, options: [] });
+    }
+
+    return res.json({ status: "ok", reply: response.text, text: response.text, options: response.options || [] });
   } catch (err) {
     console.error("❌ خطأ في /api/chat:", err);
     return res.status(500).json({ status: "error", message: err.message });
@@ -45,7 +80,9 @@ app.post("/api/chat", async (req, res) => {
 
 // رسالة الترحيب الابتدائية (تُستدعى عند فتح نافذة الشات لأول مرة)
 app.get("/api/chat/welcome", (req, res) => {
-  res.json({ status: "ok", reply: welcomeMessage() });
+  const lang = req.query.lang === "en" ? "en" : "ar";
+  const response = welcomeMessage(lang);
+  res.json({ status: "ok", reply: response.text, text: response.text, options: response.options || [] });
 });
 
 // ===================== Webhook استقبال رسائل واتساب من UltraMsg =====================
@@ -63,14 +100,23 @@ app.post("/webhook", async (req, res) => {
 
     const from = data.from; // مثال: 9715XXXXXXXX@c.us
     const phone = String(from).split("@")[0];
-    const text = data.body;
+    const rawText = data.body;
 
-    console.log(`📩 رسالة واردة من ${phone}: ${text}`);
+    console.log(`📩 رسالة واردة من ${phone}: ${rawText}`);
 
-    const reply = await processMessage(phone, text);
+    // إذا كانت الرسالة رقماً، حوّله إلى value المطابق من آخر خيارات معروضة
+    const text = resolveWhatsAppSelection(phone, rawText);
 
-    if (reply) {
-      await sendMessage(phone, reply);
+    const response = await processMessage(phone, text);
+
+    if (response) {
+      // حفظ الخيارات الحالية لتفسير الرقم القادم
+      const conversation = store.getConversation(phone);
+      conversation.lastOptions = response.options || [];
+      store.saveConversation(phone, conversation);
+
+      const formatted = formatForWhatsApp(response);
+      await sendMessage(phone, formatted);
       console.log(`📤 تم الرد على ${phone}`);
     } else {
       console.log(`🔇 لا يوجد رد تلقائي (المحادثة محوّلة لموظف الاستقبال)`);

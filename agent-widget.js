@@ -1,9 +1,12 @@
 // ===================== ويدجت المساعد الذكي - مستشفى الموسي التخصصي =====================
 // يتصل بسيرفر الإيجنت على Render عبر /api/chat
+// يدعم: عربي/إنجليزي + ردود بأزرار اختيار + إدخال نصي عند الحاجة فقط
 
 const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا الرابط إذا تغير رابط سيرفر Render
 
 (function () {
+  let currentLang = "ar";
+
   // ---------- توليد / استرجاع معرف الجلسة ----------
   function getSessionId() {
     let id = sessionStorage.getItem("almousa_chat_session");
@@ -22,22 +25,27 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       <button id="agentChatToggle" aria-label="فتح المساعد الذكي">
         <span class="agent-chat-icon-open">🩺</span>
         <span class="agent-chat-icon-close">✕</span>
+        <span class="agent-chat-pulse"></span>
       </button>
       <div id="agentChatWindow" class="agent-chat-window" role="dialog" aria-label="المساعد الذكي لمستشفى الموسي">
         <div class="agent-chat-header">
           <div class="agent-chat-header-info">
             <span class="agent-chat-avatar">✚</span>
             <div>
-              <strong>المساعد الذكي</strong>
-              <span class="agent-chat-status">متصل الآن</span>
+              <strong id="agentChatTitle">المساعد الذكي</strong>
+              <span class="agent-chat-status" id="agentChatStatus">متصل الآن</span>
             </div>
           </div>
-          <button id="agentChatClose" aria-label="إغلاق المحادثة">✕</button>
+          <div class="agent-chat-header-actions">
+            <button id="agentChatLangToggle" class="agent-lang-toggle" type="button">EN</button>
+            <button id="agentChatClose" aria-label="إغلاق المحادثة">✕</button>
+          </div>
         </div>
         <div id="agentChatMessages" class="agent-chat-messages"></div>
         <div id="agentChatTyping" class="agent-chat-typing" style="display:none;">
           <span></span><span></span><span></span>
         </div>
+        <div id="agentChatOptions" class="agent-chat-options"></div>
         <form id="agentChatForm" class="agent-chat-form">
           <input type="text" id="agentChatInput" placeholder="اكتب رسالتك هنا..." autocomplete="off" />
           <button type="submit" aria-label="إرسال">➤</button>
@@ -52,14 +60,13 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
     const messages = document.getElementById("agentChatMessages");
     const bubble = document.createElement("div");
     bubble.className = `agent-msg agent-msg-${sender}`;
-    // تحويل **bold** و أسطر جديدة إلى HTML بسيط وآمن
     bubble.innerHTML = formatMessage(text);
     messages.appendChild(bubble);
     messages.scrollTop = messages.scrollHeight;
   }
 
   function formatMessage(text) {
-    const escaped = text
+    const escaped = String(text)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
@@ -74,6 +81,33 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
     messages.scrollTop = messages.scrollHeight;
   }
 
+  // ---------- عرض أزرار الخيارات ----------
+  function renderOptions(options, onSelect) {
+    const wrap = document.getElementById("agentChatOptions");
+    const form = document.getElementById("agentChatForm");
+    const input = document.getElementById("agentChatInput");
+    wrap.innerHTML = "";
+
+    if (options && options.length > 0) {
+      // عرض الأزرار، وإخفاء حقل الكتابة (التنقل بالأزرار فقط)
+      options.forEach((opt) => {
+        const btn = document.createElement("button");
+        btn.className = "agent-option-btn";
+        btn.textContent = opt.label;
+        btn.addEventListener("click", () => onSelect(opt.value, opt.label));
+        wrap.appendChild(btn);
+      });
+      wrap.style.display = "flex";
+      form.style.display = "none";
+    } else {
+      // لا خيارات = خطوة تتطلب إدخال نص (اسم، هاتف، عمر، تاريخ، سبب الزيارة)
+      wrap.style.display = "none";
+      form.style.display = "flex";
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
   // ---------- إرسال رسالة للسيرفر ----------
   async function sendToAgent(message) {
     const sessionId = getSessionId();
@@ -85,49 +119,81 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       });
       if (!res.ok) throw new Error("network");
       const data = await res.json();
-      return data.reply || "عذراً، حدث خطأ. يرجى المحاولة مرة أخرى.";
+      return { text: data.text || data.reply, options: data.options || [] };
     } catch (err) {
       console.error("خطأ في الاتصال بالمساعد الذكي:", err);
-      return "⚠️ تعذر الاتصال بالمساعد الذكي حالياً. يرجى المحاولة لاحقاً أو التواصل عبر واتساب على 0566350025.";
+      const errMsg =
+        currentLang === "en"
+          ? "⚠️ Couldn't connect to the smart assistant right now. Please try again later or contact us on WhatsApp at 0566350025."
+          : "⚠️ تعذر الاتصال بالمساعد الذكي حالياً. يرجى المحاولة لاحقاً أو التواصل عبر واتساب على 0566350025.";
+      return { text: errMsg, options: [] };
     }
   }
 
-  async function fetchWelcome() {
+  async function fetchWelcome(lang) {
     try {
-      const res = await fetch(`${AGENT_API_BASE}/api/chat/welcome`);
+      const res = await fetch(`${AGENT_API_BASE}/api/chat/welcome?lang=${lang}`);
       if (!res.ok) throw new Error("network");
       const data = await res.json();
-      return data.reply;
+      return { text: data.text || data.reply, options: data.options || [] };
     } catch {
-      return "🏥 *مرحباً بك في مستشفى الموسي التخصصي* ✚\n\nاكتب رسالتك وسأساعدك في الحجز أو الاستفسار.";
+      const fallback =
+        lang === "en"
+          ? "🏥 *Welcome to Al Mousa Specialty Hospital* ✚\n\nHow can I help you?"
+          : "🏥 *مرحباً بك في مستشفى الموسي التخصصي* ✚\n\nكيف يمكنني مساعدتك؟";
+      return { text: fallback, options: [] };
     }
+  }
+
+  function applyLangUI(lang) {
+    currentLang = lang;
+    const isAr = lang === "ar";
+    document.documentElement.setAttribute("dir", document.documentElement.getAttribute("dir") || "rtl");
+
+    const widget = document.getElementById("agentChatWidget");
+    widget.classList.toggle("lang-en", !isAr);
+
+    document.getElementById("agentChatTitle").textContent = isAr ? "المساعد الذكي" : "Smart Assistant";
+    document.getElementById("agentChatStatus").textContent = isAr ? "متصل الآن" : "Online now";
+    document.getElementById("agentChatInput").placeholder = isAr ? "اكتب رسالتك هنا..." : "Type your message...";
+    document.getElementById("agentChatToggle").setAttribute("aria-label", isAr ? "فتح المساعد الذكي" : "Open smart assistant");
+    document.getElementById("agentChatClose").setAttribute("aria-label", isAr ? "إغلاق المحادثة" : "Close chat");
+    document.getElementById("agentChatLangToggle").textContent = isAr ? "EN" : "AR";
   }
 
   // ---------- تهيئة الويدجت ----------
   function init() {
     buildWidget();
+    applyLangUI("ar");
 
     const toggleBtn = document.getElementById("agentChatToggle");
     const closeBtn = document.getElementById("agentChatClose");
+    const langBtn = document.getElementById("agentChatLangToggle");
     const windowEl = document.getElementById("agentChatWindow");
     const form = document.getElementById("agentChatForm");
     const input = document.getElementById("agentChatInput");
 
     let opened = false;
-    let welcomed = false;
+    let started = false;
+
+    async function startConversation(lang) {
+      document.getElementById("agentChatMessages").innerHTML = "";
+      setTyping(true);
+      const welcome = await fetchWelcome(lang);
+      setTyping(false);
+      appendMessage(welcome.text, "bot");
+      renderOptions(welcome.options, handleSelection);
+    }
 
     async function openChat() {
       windowEl.classList.add("open");
       toggleBtn.classList.add("open");
       opened = true;
-      if (!welcomed) {
-        welcomed = true;
-        setTyping(true);
-        const welcome = await fetchWelcome();
-        setTyping(false);
-        appendMessage(welcome, "bot");
+      if (!started) {
+        started = true;
+        await startConversation(currentLang);
       }
-      input.focus();
+      if (form.style.display !== "none") input.focus();
     }
 
     function closeChat() {
@@ -136,11 +202,32 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       opened = false;
     }
 
+    async function handleSelection(value, label) {
+      appendMessage(label, "user");
+      document.getElementById("agentChatOptions").innerHTML = "";
+      document.getElementById("agentChatOptions").style.display = "none";
+      setTyping(true);
+
+      const response = await sendToAgent(value);
+
+      setTyping(false);
+      appendMessage(response.text, "bot");
+      renderOptions(response.options, handleSelection);
+    }
+
     toggleBtn.addEventListener("click", () => {
       if (opened) closeChat();
       else openChat();
     });
     closeBtn.addEventListener("click", closeChat);
+
+    langBtn.addEventListener("click", async () => {
+      const newLang = currentLang === "ar" ? "en" : "ar";
+      applyLangUI(newLang);
+      // إعادة تشغيل المحادثة بالقائمة الجديدة باللغة المختارة
+      await sendToAgent(`lang:${newLang}`);
+      await startConversation(newLang);
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -151,12 +238,12 @@ const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // عدّل هذا
       input.disabled = true;
       setTyping(true);
 
-      const reply = await sendToAgent(text);
+      const response = await sendToAgent(text);
 
       setTyping(false);
-      appendMessage(reply, "bot");
+      appendMessage(response.text, "bot");
       input.disabled = false;
-      input.focus();
+      renderOptions(response.options, handleSelection);
     });
   }
 

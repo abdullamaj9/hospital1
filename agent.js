@@ -1,21 +1,34 @@
 // ===================== منطق إيجنت واتساب الذكي - مستشفى الموسي التخصصي =====================
-const { DEPARTMENTS, DOCTORS, TIME_SLOTS, HOSPITAL_INFO } = require("./data");
+// يدعم: العربية/الإنجليزية + ردود بأزرار (options) بجانب النص
+
+const {
+  DEPARTMENTS,
+  DOCTORS,
+  TIME_SLOTS,
+  HOSPITAL_INFO,
+  deptName,
+  doctorName,
+  doctorTitle,
+  hospitalName,
+  hospitalAddress,
+  hospitalHours,
+} = require("./data");
 const store = require("./store");
 const { sendMessage, sendLocation } = require("./ultramsg");
+const { t } = require("./i18n");
 
 const RECEPTION_PHONE = process.env.RECEPTION_PHONE || "971509788772";
 
 // ===================== أدوات مساعدة =====================
 
-function findDeptByText(text) {
-  const t = text.trim().toLowerCase();
-  return DEPARTMENTS.find((d) => t.includes(d.name.toLowerCase()) || d.name.toLowerCase().includes(t));
-}
-
 function findDeptByIndex(text) {
   const num = parseInt(text.trim(), 10);
   if (isNaN(num)) return null;
   return DEPARTMENTS[num - 1] || null;
+}
+
+function findDeptById(id) {
+  return DEPARTMENTS.find((d) => d.id === id) || null;
 }
 
 function findDoctorsByDept(deptId) {
@@ -29,13 +42,11 @@ function findDoctorByIndex(text, deptId) {
   return doctors[num - 1] || null;
 }
 
-function findDoctorByName(text) {
-  const t = text.trim().toLowerCase();
-  return DOCTORS.find((d) => t.includes(d.name.toLowerCase()) || d.name.toLowerCase().includes(t));
+function findDoctorById(id) {
+  return DOCTORS.find((d) => d.id === id) || null;
 }
 
 function isValidDate(text) {
-  // يقبل صيغة YYYY-MM-DD أو DD-MM-YYYY أو DD/MM/YYYY
   const t = text.trim();
   const iso = /^\d{4}-\d{2}-\d{2}$/;
   const dmy = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/;
@@ -59,96 +70,111 @@ function genBookingId() {
   return "BK" + Date.now();
 }
 
-// ===================== رسائل ثابتة =====================
-
-function welcomeMessage() {
-  return (
-    `🏥 *مرحباً بك في ${HOSPITAL_INFO.name}* ✚\n\n` +
-    `أنا المساعد الذكي للمستشفى، يمكنني مساعدتك في:\n\n` +
-    `1️⃣ حجز موعد جديد\n` +
-    `2️⃣ الاستفسار عن الأقسام والأطباء\n` +
-    `3️⃣ مواعيد العمل\n` +
-    `4️⃣ عنوان المستشفى والموقع\n` +
-    `5️⃣ تعديل موعد محجوز\n` +
-    `6️⃣ إلغاء موعد\n` +
-    `7️⃣ التحدث مع موظف الاستقبال\n\n` +
-    `📝 يمكنك كتابة رقم الخدمة أو كتابة طلبك مباشرة بكلماتك.`
-  );
+// تنسيق رد موحّد: نص + أزرار اختيارية
+function reply(text, options = []) {
+  return { text, options };
 }
 
-function departmentsListMessage() {
-  let msg = `🏥 *الأقسام الطبية في ${HOSPITAL_INFO.name}*\n\n`;
-  DEPARTMENTS.forEach((d, i) => {
-    msg += `${i + 1}. ${d.icon} ${d.name}\n`;
-  });
-  msg += `\nاكتب رقم القسم الذي تريد الحجز فيه، أو اكتب اسمه.`;
-  return msg;
+// ===================== القائمة الرئيسية =====================
+
+function mainMenuOptions(lang) {
+  return [
+    { label: t(lang, "menu_book"), value: "book" },
+    { label: t(lang, "menu_departments"), value: "departments" },
+    { label: t(lang, "menu_hours"), value: "hours" },
+    { label: t(lang, "menu_location"), value: "location" },
+    { label: t(lang, "menu_modify"), value: "modify" },
+    { label: t(lang, "menu_cancel"), value: "cancel" },
+    { label: t(lang, "menu_availability"), value: "availability" },
+    { label: t(lang, "menu_reception"), value: "reception" },
+  ];
 }
 
-function doctorsListMessage(dept) {
+function welcomeMessage(lang) {
+  const text = `${t(lang, "welcomeTitle", hospitalName(lang))}\n\n${t(lang, "welcomeIntro")}`;
+  return reply(text, mainMenuOptions(lang));
+}
+
+function backToMenuOption(lang) {
+  return { label: t(lang, "backToMenu"), value: "menu" };
+}
+
+// ===================== الأقسام والأطباء =====================
+
+function departmentsOptions(lang) {
+  return DEPARTMENTS.map((d) => ({
+    label: `${d.icon} ${deptName(d, lang)}`,
+    value: `dept:${d.id}`,
+  }));
+}
+
+function departmentsMessage(lang) {
+  const text = t(lang, "departmentsTitle", hospitalName(lang));
+  return reply(text, [...departmentsOptions(lang), backToMenuOption(lang)]);
+}
+
+function doctorsOptions(deptId, lang) {
+  const doctors = findDoctorsByDept(deptId);
+  return doctors.map((doc) => ({
+    label: `${doctorName(doc, lang)} - ${doctorTitle(doc, lang)}`,
+    value: `doctor:${doc.id}`,
+  }));
+}
+
+function doctorsMessage(dept, lang) {
   const doctors = findDoctorsByDept(dept.id);
   if (doctors.length === 0) {
-    return `عذراً، لا يوجد أطباء متاحون حالياً في قسم ${dept.name}. سيتم تحويلك لموظف الاستقبال للمساعدة.`;
+    return reply(
+      lang === "en"
+        ? `Sorry, no doctors are currently available in ${deptName(dept, lang)}.`
+        : `عذراً، لا يوجد أطباء متاحون حالياً في قسم ${deptName(dept, lang)}.`,
+      [backToMenuOption(lang)]
+    );
   }
-  let msg = `${dept.icon} *قسم ${dept.name}*\n\nالأطباء المتاحون:\n\n`;
-  doctors.forEach((doc, i) => {
-    msg += `${i + 1}. ${doc.name}\n   ${doc.title} - خبرة ${doc.exp} سنة\n   💰 سعر الكشف: ${doc.fee} د.إ | ⏱ مدة الموعد: ${doc.duration} دقيقة\n\n`;
+  let text = `${dept.icon} *${deptName(dept, lang)}*\n${t(lang, "doctorsTitle", "")}\n\n`;
+  doctors.forEach((doc) => {
+    text += `👨‍⚕️ *${doctorName(doc, lang)}*\n${doctorTitle(doc, lang)} - ${t(lang, "expYears", doc.exp)}\n💰 ${t(lang, "feeLabel")}: ${doc.fee} ${t(lang, "currency")} | ⏱ ${t(lang, "durationLabel")}: ${doc.duration} ${t(lang, "minutes")}\n\n`;
   });
-  msg += `اكتب رقم الطبيب الذي تريد الحجز معه.`;
-  return msg;
+  return reply(text.trim(), [...doctorsOptions(dept.id, lang), backToMenuOption(lang)]);
 }
 
-function workingHoursMessage() {
-  return (
-    `🕐 *أوقات العمل - ${HOSPITAL_INFO.name}*\n\n` +
-    `العيادات الخارجية: 8:00 صباحاً - 10:00 مساءً\n` +
-    `قسم الطوارئ: متاح على مدار الساعة (24/7) طوال أيام الأسبوع 🚑\n\n` +
-    `للحجز اكتب "حجز" أو "1".`
-  );
+// ===================== مواعيد العمل / الموقع =====================
+
+function workingHoursMessage(lang) {
+  const text =
+    `${t(lang, "workingHoursTitle")}\n\n` +
+    `${t(lang, "outpatient")}\n` +
+    `${t(lang, "emergency247")}`;
+  return reply(text, [{ label: t(lang, "menu_book"), value: "book" }, backToMenuOption(lang)]);
 }
 
-function locationMessage() {
-  return (
-    `📍 *عنوان ${HOSPITAL_INFO.name}*\n\n` +
-    `${HOSPITAL_INFO.address}\n` +
+function locationMessage(lang) {
+  const text =
+    `${t(lang, "locationTitle", hospitalName(lang))}\n\n` +
+    `${hospitalAddress(lang)}\n` +
     `📞 ${HOSPITAL_INFO.phone}\n` +
-    `🚑 الطوارئ: ${HOSPITAL_INFO.emergency}\n` +
+    `🚑 ${lang === "en" ? "Emergency" : "الطوارئ"}: ${HOSPITAL_INFO.emergency}\n` +
     `✉️ ${HOSPITAL_INFO.email}\n\n` +
-    `🌐 الموقع الإلكتروني: ${HOSPITAL_INFO.website}\n\n` +
-    `سيتم إرسال الموقع الجغرافي على الخريطة الآن 👇`
-  );
+    `${t(lang, "website")}: ${HOSPITAL_INFO.website}`;
+  return reply(text, [backToMenuOption(lang)]);
 }
 
-function timeSlotsMessage(takenSlots = []) {
-  let msg = `🕐 *الأوقات المتاحة:*\n\n`;
-  TIME_SLOTS.forEach((t, i) => {
-    const taken = takenSlots.includes(t);
-    msg += `${i + 1}. ${t}${taken ? " ❌ (محجوز)" : " ✅"}\n`;
-  });
-  msg += `\nاكتب رقم الوقت المناسب لك.`;
-  return msg;
-}
+// ===================== أوقات الحجز =====================
 
-function handoffMessage() {
-  return (
-    `🔄 تم تحويل طلبك إلى *موظف الاستقبال* وسيتواصل معك قريباً.\n\n` +
-    `يمكنك أيضاً التواصل مباشرة على: ${HOSPITAL_INFO.phone}\n\n` +
-    `للعودة للقائمة الرئيسية، اكتب "القائمة".`
-  );
-}
-
-function genericErrorMessage() {
-  return `⚠️ لم أتمكن من فهم طلبك. اكتب "القائمة" لعرض الخيارات المتاحة، أو "موظف" للتحدث مع موظف الاستقبال.`;
+function timeSlotsOptions(doctorId, date, lang, excludeBookingId = null) {
+  return TIME_SLOTS.filter((time) => !store.isSlotTaken(doctorId, date, time, excludeBookingId)).map((time) => ({
+    label: time,
+    value: `time:${time}`,
+  }));
 }
 
 // ===================== التحويل لموظف الاستقبال =====================
 
-async function handoffToReception(phone, conversation, reason, lastMessage) {
+async function handoffToReception(phone, conversation, reason, lastMessage, lang) {
   conversation.handedOff = true;
   conversation.state = "with_reception";
   store.saveConversation(phone, conversation);
 
-  // 1. تسجيل في ملف handoffs.json
   store.addHandoff({
     id: "HO" + Date.now(),
     phone: store.normalizePhone(phone),
@@ -158,7 +184,6 @@ async function handoffToReception(phone, conversation, reason, lastMessage) {
     status: "بانتظار الرد",
   });
 
-  // 2. إرسال إشعار واتساب فوري لموظف الاستقبال
   const notif =
     `🔔 *تحويل محادثة جديدة - يتطلب تدخل بشري*\n\n` +
     `📱 رقم العميل: ${store.normalizePhone(phone)}\n` +
@@ -168,220 +193,254 @@ async function handoffToReception(phone, conversation, reason, lastMessage) {
 
   await sendMessage(RECEPTION_PHONE, notif);
 
-  return handoffMessage();
+  const text = `${t(lang, "handoffMsg")}\n\n${t(lang, "handoffPhoneNote", HOSPITAL_INFO.phone)}`;
+  return reply(text, [backToMenuOption(lang)]);
 }
 
 // ===================== سير عمل الحجز =====================
 
-async function startBooking(phone, conversation) {
+async function startBooking(phone, conversation, lang) {
   conversation.state = "booking_dept";
   conversation.data = {};
   store.saveConversation(phone, conversation);
-  return departmentsListMessage();
+  return reply(t(lang, "chooseDept"), [...departmentsOptions(lang), backToMenuOption(lang)]);
 }
 
-async function handleBookingDept(phone, conversation, text) {
-  let dept = findDeptByIndex(text) || findDeptByText(text);
+async function handleBookingDept(phone, conversation, text, lang) {
+  let dept = null;
+  if (text.startsWith("dept:")) dept = findDeptById(text.slice(5));
+  if (!dept) dept = findDeptByIndex(text);
   if (!dept) {
-    return `⚠️ لم أتعرف على هذا القسم. ${departmentsListMessage()}`;
+    return reply(`${t(lang, "invalidDept")}\n\n${t(lang, "chooseDept")}`, [...departmentsOptions(lang), backToMenuOption(lang)]);
   }
   conversation.data.dept = dept.id;
-  conversation.data.deptName = dept.name;
   conversation.state = "booking_doctor";
   store.saveConversation(phone, conversation);
-  return doctorsListMessage(dept);
+  return doctorSelectMessage(dept, lang, "booking");
 }
 
-async function handleBookingDoctor(phone, conversation, text) {
+function doctorSelectMessage(dept, lang, context) {
+  const doctors = findDoctorsByDept(dept.id);
+  if (doctors.length === 0) {
+    return reply(
+      lang === "en"
+        ? `Sorry, no doctors are currently available in ${deptName(dept, lang)}.`
+        : `عذراً، لا يوجد أطباء متاحون حالياً في قسم ${deptName(dept, lang)}.`,
+      [backToMenuOption(lang)]
+    );
+  }
+  let text = `${dept.icon} *${deptName(dept, lang)}*\n\n${t(lang, "chooseDoctor")}\n\n`;
+  doctors.forEach((doc) => {
+    text += `👨‍⚕️ *${doctorName(doc, lang)}* - ${doctorTitle(doc, lang)}\n${t(lang, "expYears", doc.exp)} | 💰 ${doc.fee} ${t(lang, "currency")} | ⏱ ${doc.duration} ${t(lang, "minutes")}\n\n`;
+  });
+  return reply(text.trim(), [...doctorsOptions(dept.id, lang), backToMenuOption(lang)]);
+}
+
+async function handleBookingDoctor(phone, conversation, text, lang) {
   const dept = conversation.data.dept;
-  let doctor = findDoctorByIndex(text, dept) || findDoctorByName(text);
+  let doctor = null;
+  if (text.startsWith("doctor:")) doctor = findDoctorById(text.slice(7));
+  if (!doctor) doctor = findDoctorByIndex(text, dept);
   if (!doctor) {
-    const deptObj = DEPARTMENTS.find((d) => d.id === dept);
-    return `⚠️ لم أتعرف على الطبيب. ${doctorsListMessage(deptObj)}`;
+    const deptObj = findDeptById(dept);
+    return reply(`${t(lang, "invalidDoctor")}`, [...doctorsOptions(dept, lang), backToMenuOption(lang)]);
   }
   conversation.data.doctorId = doctor.id;
-  conversation.data.doctorName = doctor.name;
   conversation.data.fee = doctor.fee;
   conversation.state = "booking_date";
   store.saveConversation(phone, conversation);
-  return (
-    `✅ اختيارك: *${doctor.name}* (${doctor.title})\n\n` +
-    `📅 من فضلك أدخل التاريخ المطلوب للموعد بصيغة:\n` +
-    `*YYYY-MM-DD* (مثال: 2026-06-20)`
+  return reply(
+    `✅ ${lang === "en" ? "Selected" : "اختيارك"}: *${doctorName(doctor, lang)}* (${doctorTitle(doctor, lang)})\n\n${t(lang, "chooseDate")}\n${lang === "en" ? "(Format: YYYY-MM-DD, e.g. 2026-06-20)" : "(الصيغة: YYYY-MM-DD، مثال: 2026-06-20)"}`,
+    [backToMenuOption(lang)]
   );
 }
 
-async function handleBookingDate(phone, conversation, text) {
+async function handleBookingDate(phone, conversation, text, lang) {
   const date = isValidDate(text);
   if (!date) {
-    return `⚠️ صيغة التاريخ غير صحيحة. يرجى إدخال التاريخ بصيغة *YYYY-MM-DD* (مثال: 2026-06-20).`;
+    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)]);
   }
   if (isPastDate(date)) {
-    return `⚠️ لا يمكن الحجز في تاريخ سابق. يرجى إدخال تاريخ من اليوم فصاعداً.`;
+    return reply(t(lang, "pastDate"), [backToMenuOption(lang)]);
   }
   conversation.data.date = date;
+
+  const doctor = findDoctorById(conversation.data.doctorId);
+  const options = timeSlotsOptions(conversation.data.doctorId, date, lang);
+
+  if (options.length === 0) {
+    return reply(t(lang, "allSlotsTaken", doctorName(doctor, lang)), [backToMenuOption(lang)]);
+  }
+
   conversation.state = "booking_time";
   store.saveConversation(phone, conversation);
 
-  const taken = TIME_SLOTS.filter((t) =>
-    store.isSlotTaken(conversation.data.doctorId, date, t)
-  );
-
-  if (taken.length === TIME_SLOTS.length) {
-    conversation.state = "booking_date";
-    store.saveConversation(phone, conversation);
-    return `❌ عذراً، جميع الأوقات محجوزة لدى ${conversation.data.doctorName} في هذا التاريخ. يرجى اختيار تاريخ آخر.`;
-  }
-
-  return `📅 التاريخ: *${date}*\n\n${timeSlotsMessage(taken)}`;
+  return reply(`${t(lang, "fieldDate")}: *${date}*\n\n${t(lang, "chooseTime")}`, [...options, backToMenuOption(lang)]);
 }
 
-async function handleBookingTime(phone, conversation, text) {
-  const num = parseInt(text.trim(), 10);
+async function handleBookingTime(phone, conversation, text, lang) {
   let time = null;
-  if (!isNaN(num) && TIME_SLOTS[num - 1]) {
-    time = TIME_SLOTS[num - 1];
-  } else if (TIME_SLOTS.includes(text.trim())) {
-    time = text.trim();
+  if (text.startsWith("time:")) time = text.slice(5);
+  else {
+    const num = parseInt(text.trim(), 10);
+    const options = timeSlotsOptions(conversation.data.doctorId, conversation.data.date, lang);
+    if (!isNaN(num) && options[num - 1]) time = options[num - 1].value.slice(5);
   }
 
-  if (!time) {
-    return `⚠️ يرجى اختيار رقم من الأوقات المتاحة.\n\n${timeSlotsMessage(
-      TIME_SLOTS.filter((t) => store.isSlotTaken(conversation.data.doctorId, conversation.data.date, t))
-    )}`;
+  const doctor = findDoctorById(conversation.data.doctorId);
+
+  if (!time || !TIME_SLOTS.includes(time)) {
+    const options = timeSlotsOptions(conversation.data.doctorId, conversation.data.date, lang);
+    return reply(t(lang, "invalidGeneric"), [...options, backToMenuOption(lang)]);
   }
 
-  // فحص التعارض
   if (store.isSlotTaken(conversation.data.doctorId, conversation.data.date, time)) {
-    return `❌ عذراً، هذا الوقت محجوز للتو لدى الطبيب. يرجى اختيار وقت آخر.\n\n${timeSlotsMessage(
-      TIME_SLOTS.filter((t) => store.isSlotTaken(conversation.data.doctorId, conversation.data.date, t))
-    )}`;
+    const options = timeSlotsOptions(conversation.data.doctorId, conversation.data.date, lang);
+    return reply(t(lang, "slotTaken"), [...options, backToMenuOption(lang)]);
   }
 
   conversation.data.time = time;
   conversation.state = "booking_name";
   store.saveConversation(phone, conversation);
-  return `🕐 الوقت: *${time}*\n\n👤 يرجى إدخال *اسمك الكامل* (اسم المريض):`;
+  return reply(`${t(lang, "fieldTime")}: *${time}*\n\n${t(lang, "enterName")}`, []);
 }
 
-async function handleBookingName(phone, conversation, text) {
+async function handleBookingName(phone, conversation, text, lang) {
   const name = text.trim();
   if (name.length < 2) {
-    return `⚠️ يرجى إدخال اسم صحيح.`;
+    return reply(t(lang, "invalidName"), []);
   }
   conversation.data.name = name;
 
-  // لجلسات الموقع (web-xxxx) نحتاج رقم هاتف فعلي للتواصل، أما واتساب فالرقم معروف من الجلسة
   if (String(phone).startsWith("web-")) {
     conversation.state = "booking_phone";
     store.saveConversation(phone, conversation);
-    return `👤 الاسم: *${name}*\n\n📱 يرجى إدخال *رقم هاتفك* للتواصل (مثال: 05XXXXXXXX):`;
+    return reply(`${t(lang, "fieldName")}: *${name}*\n\n${t(lang, "enterPhone")}`, []);
   }
 
   conversation.state = "booking_age";
   store.saveConversation(phone, conversation);
-  return `👤 الاسم: *${name}*\n\n🎂 يرجى إدخال *العمر*:`;
+  return reply(`${t(lang, "fieldName")}: *${name}*\n\n${t(lang, "enterAge")}`, []);
 }
 
-async function handleBookingPhone(phone, conversation, text) {
+async function handleBookingPhone(phone, conversation, text, lang) {
   const raw = text.trim();
   const digits = raw.replace(/[^\d]/g, "");
   if (digits.length < 7) {
-    return `⚠️ يرجى إدخال رقم هاتف صحيح (مثال: 05XXXXXXXX).`;
+    return reply(t(lang, "invalidPhone"), []);
   }
   conversation.data.contactPhone = raw;
   conversation.state = "booking_age";
   store.saveConversation(phone, conversation);
-  return `📱 رقم الهاتف: *${raw}*\n\n🎂 يرجى إدخال *العمر*:`;
+  return reply(`${t(lang, "fieldPhone")}: *${raw}*\n\n${t(lang, "enterAge")}`, []);
 }
 
-async function handleBookingAge(phone, conversation, text) {
+async function handleBookingAge(phone, conversation, text, lang) {
   const age = parseInt(text.trim(), 10);
   if (isNaN(age) || age < 0 || age > 120) {
-    return `⚠️ يرجى إدخال عمر صحيح (مثال: 35).`;
+    return reply(t(lang, "invalidAge"), []);
   }
   conversation.data.age = age;
   conversation.state = "booking_gender";
   store.saveConversation(phone, conversation);
-  return `🎂 العمر: *${age}*\n\n⚧ يرجى تحديد *الجنس*:\n1. ذكر\n2. أنثى`;
+  return reply(`${t(lang, "fieldAge")}: *${age}*\n\n${t(lang, "chooseGender")}`, [
+    { label: t(lang, "male"), value: "gender:male" },
+    { label: t(lang, "female"), value: "gender:female" },
+  ]);
 }
 
-async function handleBookingGender(phone, conversation, text) {
-  const t = text.trim();
+async function handleBookingGender(phone, conversation, text, lang) {
+  const t_ = text.trim().toLowerCase();
   let gender = null;
-  if (t === "1" || t.includes("ذكر")) gender = "ذكر";
-  else if (t === "2" || t.includes("أنث") || t.includes("انث")) gender = "أنثى";
+  if (t_ === "gender:male" || t_ === "1" || t_.includes("ذكر") || t_ === "male") gender = "male";
+  else if (t_ === "gender:female" || t_ === "2" || t_.includes("أنث") || t_.includes("انث") || t_ === "female") gender = "female";
 
   if (!gender) {
-    return `⚠️ يرجى اختيار 1 (ذكر) أو 2 (أنثى).`;
+    return reply(t(lang, "invalidGeneric"), [
+      { label: t(lang, "male"), value: "gender:male" },
+      { label: t(lang, "female"), value: "gender:female" },
+    ]);
   }
   conversation.data.gender = gender;
   conversation.state = "booking_reason";
   store.saveConversation(phone, conversation);
-  return `⚧ الجنس: *${gender}*\n\n📝 يرجى كتابة *سبب الزيارة* باختصار (أو اكتب "بدون" للتخطي):`;
+  const genderLabel = gender === "male" ? t(lang, "male") : t(lang, "female");
+  return reply(`${t(lang, "fieldGender")}: *${genderLabel}*\n\n${t(lang, "enterReason")}`, [
+    { label: t(lang, "skip"), value: "skip" },
+  ]);
 }
 
-async function handleBookingReason(phone, conversation, text) {
-  const reason = text.trim();
-  conversation.data.reason = reason === "بدون" ? "" : reason;
+async function handleBookingReason(phone, conversation, text, lang) {
+  const reasonText = text.trim();
+  conversation.data.reason = reasonText.toLowerCase() === "skip" ? "" : reasonText;
   conversation.state = "booking_confirm";
   store.saveConversation(phone, conversation);
 
-  const d = conversation.data;
-  return (
-    `📋 *مراجعة بيانات الحجز:*\n\n` +
-    `🏥 القسم: ${d.deptName}\n` +
-    `👨‍⚕️ الطبيب: ${d.doctorName}\n` +
-    `📅 التاريخ: ${d.date}\n` +
-    `🕐 الوقت: ${d.time}\n` +
-    `👤 الاسم: ${d.name}\n` +
-    (d.contactPhone ? `📱 الهاتف: ${d.contactPhone}\n` : "") +
-    `🎂 العمر: ${d.age}\n` +
-    `⚧ الجنس: ${d.gender}\n` +
-    `📝 سبب الزيارة: ${d.reason || "-"}\n` +
-    `💰 سعر الكشف: ${d.fee} د.إ\n\n` +
-    `✅ اكتب "تأكيد" لتأكيد الحجز\n` +
-    `❌ اكتب "إلغاء" للتراجع`
-  );
+  return bookingSummaryMessage(conversation.data, lang);
 }
 
-async function handleBookingConfirm(phone, conversation, text) {
-  const t = text.trim().toLowerCase();
-  if (t.includes("إلغاء") || t.includes("الغاء") || t === "0") {
+function bookingSummaryMessage(d, lang) {
+  const dept = findDeptById(d.dept);
+  const doctor = findDoctorById(d.doctorId);
+  const genderLabel = d.gender === "male" ? t(lang, "male") : t(lang, "female");
+
+  let text = `${t(lang, "bookingSummaryTitle")}\n\n`;
+  text += `${t(lang, "fieldDept")}: ${deptName(dept, lang)}\n`;
+  text += `${t(lang, "fieldDoctor")}: ${doctorName(doctor, lang)}\n`;
+  text += `${t(lang, "fieldDate")}: ${d.date}\n`;
+  text += `${t(lang, "fieldTime")}: ${d.time}\n`;
+  text += `${t(lang, "fieldName")}: ${d.name}\n`;
+  if (d.contactPhone) text += `${t(lang, "fieldPhone")}: ${d.contactPhone}\n`;
+  text += `${t(lang, "fieldAge")}: ${d.age}\n`;
+  text += `${t(lang, "fieldGender")}: ${genderLabel}\n`;
+  text += `${t(lang, "fieldReason")}: ${d.reason || "-"}\n`;
+  text += `${t(lang, "fieldFee")}: ${d.fee} ${t(lang, "currency")}`;
+
+  return reply(text, [
+    { label: t(lang, "confirm"), value: "confirm" },
+    { label: t(lang, "cancelAction"), value: "cancel_booking" },
+  ]);
+}
+
+async function handleBookingConfirm(phone, conversation, text, lang) {
+  const t_ = text.trim().toLowerCase();
+
+  if (t_ === "cancel_booking" || t_.includes("إلغاء") || t_.includes("الغاء") || t_ === "cancel") {
     conversation.state = "idle";
     conversation.data = {};
     store.saveConversation(phone, conversation);
-    return `❌ تم إلغاء عملية الحجز. اكتب "القائمة" للبدء من جديد.`;
+    return reply(t(lang, "bookingCancelledMsg"), mainMenuOptions(lang));
   }
 
-  if (!t.includes("تأكيد") && !t.includes("نعم") && t !== "1") {
-    return `يرجى كتابة "تأكيد" لإكمال الحجز أو "إلغاء" للتراجع.`;
+  if (t_ !== "confirm" && !t_.includes("تأكيد") && !t_.includes("نعم") && t_ !== "yes" && t_ !== "1") {
+    return bookingSummaryMessage(conversation.data, lang);
   }
 
   const d = conversation.data;
 
-  // فحص نهائي للتعارض قبل التأكيد
   if (store.isSlotTaken(d.doctorId, d.date, d.time)) {
     conversation.state = "booking_time";
     store.saveConversation(phone, conversation);
-    return `❌ عذراً، تم حجز هذا الوقت من شخص آخر للتو. يرجى اختيار وقت آخر.\n\n${timeSlotsMessage(
-      TIME_SLOTS.filter((time) => store.isSlotTaken(d.doctorId, d.date, time))
-    )}`;
+    const options = timeSlotsOptions(d.doctorId, d.date, lang);
+    return reply(t(lang, "slotTakenLastMoment"), [...options, backToMenuOption(lang)]);
   }
 
+  const dept = findDeptById(d.dept);
+  const doctor = findDoctorById(d.doctorId);
   const isWeb = String(phone).startsWith("web-");
+
   const booking = {
     id: genBookingId(),
     deptId: d.dept,
-    deptName: d.deptName,
+    deptName: deptName(dept, "ar"),
     doctorId: d.doctorId,
-    doctorName: d.doctorName,
+    doctorName: doctorName(doctor, "ar"),
     date: d.date,
     time: d.time,
     name: d.name,
     phone: isWeb ? store.normalizePhone(d.contactPhone || "") : store.normalizePhone(phone),
     age: d.age,
-    gender: d.gender === "ذكر" ? "male" : "female",
+    gender: d.gender,
     reason: d.reason,
     source: isWeb ? "إيجنت الموقع" : "إيجنت واتساب",
     status: "جديد",
@@ -394,117 +453,126 @@ async function handleBookingConfirm(phone, conversation, text) {
   conversation.data = {};
   store.saveConversation(phone, conversation);
 
-  return (
-    `✅ *تم تأكيد حجزك بنجاح!*\n\n` +
-    `🔖 رقم الحجز: *${booking.id}*\n` +
-    `👨‍⚕️ الطبيب: ${booking.doctorName}\n` +
-    `📅 التاريخ: ${booking.date}\n` +
-    `🕐 الوقت: ${booking.time}\n\n` +
-    `💡 احتفظ برقم الحجز لتعديله أو إلغائه لاحقاً.\n` +
-    `للعودة للقائمة الرئيسية، اكتب "القائمة".`
-  );
+  const text2 =
+    `${t(lang, "bookingConfirmed")}\n\n` +
+    `${t(lang, "bookingId")}: *${booking.id}*\n` +
+    `${t(lang, "fieldDoctor")}: ${doctorName(doctor, lang)}\n` +
+    `${t(lang, "fieldDate")}: ${booking.date}\n` +
+    `${t(lang, "fieldTime")}: ${booking.time}\n\n` +
+    `${t(lang, "keepBookingId")}`;
+
+  return reply(text2, mainMenuOptions(lang));
 }
 
 // ===================== تعديل / إلغاء الموعد =====================
 
-async function startModifyCancel(phone, conversation, action) {
+async function startModifyCancel(phone, conversation, action, lang) {
   const bookings = store.findBookingsByPhone(phone);
   if (bookings.length === 0) {
-    return `لم أجد أي حجوزات مرتبطة برقمك. اكتب "القائمة" لعرض الخيارات.`;
+    return reply(t(lang, "noBookingsFound"), mainMenuOptions(lang));
   }
 
   conversation.state = action === "modify" ? "modify_select" : "cancel_select";
   conversation.data = { bookings: bookings.map((b) => b.id) };
   store.saveConversation(phone, conversation);
 
-  let msg = `📋 *حجوزاتك الحالية:*\n\n`;
-  bookings.forEach((b, i) => {
-    msg += `${i + 1}. 🔖 ${b.id}\n   👨‍⚕️ ${b.doctorName} - ${b.deptName}\n   📅 ${b.date} 🕐 ${b.time}\n   الحالة: ${b.status}\n\n`;
+  let text = `${t(lang, "yourBookings")}\n\n`;
+  bookings.forEach((b) => {
+    text += `🔖 ${b.id}\n👨‍⚕️ ${b.doctorName} - ${b.deptName}\n📅 ${b.date} 🕐 ${b.time}\n${t(lang, "statusLabel")}: ${b.status}\n\n`;
   });
-  msg += action === "modify" ? `اكتب رقم الحجز الذي تريد *تعديله*.` : `اكتب رقم الحجز الذي تريد *إلغاءه*.`;
-  return msg;
+  text += action === "modify" ? t(lang, "selectBookingToModify") : t(lang, "selectBookingToCancel");
+
+  const options = bookings.map((b, i) => ({
+    label: `${b.id} - ${b.doctorName} (${b.date} ${b.time})`,
+    value: `booking:${b.id}`,
+  }));
+
+  return reply(text.trim(), [...options, backToMenuOption(lang)]);
 }
 
-async function handleCancelSelect(phone, conversation, text) {
-  const num = parseInt(text.trim(), 10);
-  const bookingIds = conversation.data.bookings;
-  if (isNaN(num) || !bookingIds[num - 1]) {
-    return `⚠️ يرجى إدخال رقم صحيح من القائمة أعلاه.`;
+function bookingIdFromSelection(text, bookingIds) {
+  if (text.startsWith("booking:")) {
+    const id = text.slice(8);
+    return bookingIds.includes(id) ? id : null;
   }
-  const bookingId = bookingIds[num - 1];
-  const booking = store.getBookings().find((b) => b.id === bookingId);
+  const num = parseInt(text.trim(), 10);
+  if (!isNaN(num) && bookingIds[num - 1]) return bookingIds[num - 1];
+  return null;
+}
 
+async function handleCancelSelect(phone, conversation, text, lang) {
+  const bookingId = bookingIdFromSelection(text, conversation.data.bookings);
+  if (!bookingId) {
+    return reply(t(lang, "invalidGeneric"), [backToMenuOption(lang)]);
+  }
+  const booking = store.getBookings().find((b) => b.id === bookingId);
   store.updateBooking(bookingId, { status: "ملغى" });
 
   conversation.state = "idle";
   conversation.data = {};
   store.saveConversation(phone, conversation);
 
-  return (
-    `✅ تم إلغاء الحجز *${bookingId}* بنجاح.\n` +
-    `(${booking.doctorName} - ${booking.date} ${booking.time})\n\n` +
-    `للعودة للقائمة الرئيسية، اكتب "القائمة".`
-  );
+  const text2 = `${t(lang, "bookingCancelledSuccess", bookingId)}\n(${booking.doctorName} - ${booking.date} ${booking.time})`;
+  return reply(text2, mainMenuOptions(lang));
 }
 
-async function handleModifySelect(phone, conversation, text) {
-  const num = parseInt(text.trim(), 10);
-  const bookingIds = conversation.data.bookings;
-  if (isNaN(num) || !bookingIds[num - 1]) {
-    return `⚠️ يرجى إدخال رقم صحيح من القائمة أعلاه.`;
+async function handleModifySelect(phone, conversation, text, lang) {
+  const bookingId = bookingIdFromSelection(text, conversation.data.bookings);
+  if (!bookingId) {
+    return reply(t(lang, "invalidGeneric"), [backToMenuOption(lang)]);
   }
-  const bookingId = bookingIds[num - 1];
   conversation.data.modifyBookingId = bookingId;
   conversation.state = "modify_date";
   store.saveConversation(phone, conversation);
 
-  return `📅 يرجى إدخال *التاريخ الجديد* بصيغة YYYY-MM-DD (مثال: 2026-06-25):`;
+  return reply(`${t(lang, "modifyChooseNewDate")}\n${lang === "en" ? "(Format: YYYY-MM-DD)" : "(الصيغة: YYYY-MM-DD)"}`, [backToMenuOption(lang)]);
 }
 
-async function handleModifyDate(phone, conversation, text) {
+async function handleModifyDate(phone, conversation, text, lang) {
   const date = isValidDate(text);
   if (!date) {
-    return `⚠️ صيغة التاريخ غير صحيحة. يرجى إدخال التاريخ بصيغة *YYYY-MM-DD*.`;
+    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)]);
   }
   if (isPastDate(date)) {
-    return `⚠️ لا يمكن الحجز في تاريخ سابق. يرجى إدخال تاريخ من اليوم فصاعداً.`;
+    return reply(t(lang, "pastDate"), [backToMenuOption(lang)]);
   }
   conversation.data.newDate = date;
-  conversation.state = "modify_time";
-  store.saveConversation(phone, conversation);
 
   const bookingId = conversation.data.modifyBookingId;
   const booking = store.getBookings().find((b) => b.id === bookingId);
-  const taken = TIME_SLOTS.filter((t) => store.isSlotTaken(booking.doctorId, date, t, bookingId));
+  const options = timeSlotsOptions(booking.doctorId, date, lang, bookingId);
 
-  if (taken.length === TIME_SLOTS.length) {
-    conversation.state = "modify_date";
-    store.saveConversation(phone, conversation);
-    return `❌ جميع الأوقات محجوزة في هذا التاريخ لدى ${booking.doctorName}. يرجى اختيار تاريخ آخر.`;
+  if (options.length === 0) {
+    return reply(t(lang, "allSlotsTaken", booking.doctorName), [backToMenuOption(lang)]);
   }
 
-  return `📅 التاريخ الجديد: *${date}*\n\n${timeSlotsMessage(taken)}`;
+  conversation.state = "modify_time";
+  store.saveConversation(phone, conversation);
+
+  return reply(`${t(lang, "fieldDate")}: *${date}*\n\n${t(lang, "chooseTime")}`, [...options, backToMenuOption(lang)]);
 }
 
-async function handleModifyTime(phone, conversation, text) {
-  const num = parseInt(text.trim(), 10);
-  let time = null;
-  if (!isNaN(num) && TIME_SLOTS[num - 1]) time = TIME_SLOTS[num - 1];
-
+async function handleModifyTime(phone, conversation, text, lang) {
   const bookingId = conversation.data.modifyBookingId;
   const booking = store.getBookings().find((b) => b.id === bookingId);
   const newDate = conversation.data.newDate;
 
-  if (!time) {
-    return `⚠️ يرجى اختيار رقم صحيح من الأوقات.\n\n${timeSlotsMessage(
-      TIME_SLOTS.filter((t) => store.isSlotTaken(booking.doctorId, newDate, t, bookingId))
-    )}`;
+  let time = null;
+  if (text.startsWith("time:")) time = text.slice(5);
+  else {
+    const num = parseInt(text.trim(), 10);
+    const options = timeSlotsOptions(booking.doctorId, newDate, lang, bookingId);
+    if (!isNaN(num) && options[num - 1]) time = options[num - 1].value.slice(5);
+  }
+
+  if (!time || !TIME_SLOTS.includes(time)) {
+    const options = timeSlotsOptions(booking.doctorId, newDate, lang, bookingId);
+    return reply(t(lang, "invalidGeneric"), [...options, backToMenuOption(lang)]);
   }
 
   if (store.isSlotTaken(booking.doctorId, newDate, time, bookingId)) {
-    return `❌ هذا الوقت محجوز. يرجى اختيار وقت آخر.\n\n${timeSlotsMessage(
-      TIME_SLOTS.filter((t) => store.isSlotTaken(booking.doctorId, newDate, t, bookingId))
-    )}`;
+    const options = timeSlotsOptions(booking.doctorId, newDate, lang, bookingId);
+    return reply(t(lang, "slotTaken"), [...options, backToMenuOption(lang)]);
   }
 
   const oldDate = booking.date;
@@ -516,249 +584,240 @@ async function handleModifyTime(phone, conversation, text) {
   conversation.data = {};
   store.saveConversation(phone, conversation);
 
-  return (
-    `✅ تم تعديل الحجز *${bookingId}* بنجاح!\n\n` +
-    `من: ${oldDate} ${oldTime}\n` +
-    `إلى: *${newDate} ${time}*\n` +
-    `👨‍⚕️ الطبيب: ${booking.doctorName}\n\n` +
-    `للعودة للقائمة الرئيسية، اكتب "القائمة".`
-  );
+  const text2 =
+    `${t(lang, "bookingModifiedSuccess", bookingId)}\n\n` +
+    `${t(lang, "from")}: ${oldDate} ${oldTime}\n` +
+    `${t(lang, "to")}: *${newDate} ${time}*\n` +
+    `${t(lang, "fieldDoctor")}: ${booking.doctorName}`;
+
+  return reply(text2, mainMenuOptions(lang));
 }
 
 // ===================== التحقق من التوفر (بدون حجز) =====================
 
-async function startAvailabilityCheck(phone, conversation) {
+async function startAvailabilityCheck(phone, conversation, lang) {
   conversation.state = "avail_dept";
   conversation.data = {};
   store.saveConversation(phone, conversation);
-  return `🔍 *التحقق من توفر المواعيد*\n\n${departmentsListMessage()}`;
+  return reply(`${t(lang, "availTitle")}\n\n${t(lang, "chooseDept")}`, [...departmentsOptions(lang), backToMenuOption(lang)]);
 }
 
-async function handleAvailDept(phone, conversation, text) {
-  let dept = findDeptByIndex(text) || findDeptByText(text);
+async function handleAvailDept(phone, conversation, text, lang) {
+  let dept = null;
+  if (text.startsWith("dept:")) dept = findDeptById(text.slice(5));
+  if (!dept) dept = findDeptByIndex(text);
   if (!dept) {
-    return `⚠️ لم أتعرف على هذا القسم. ${departmentsListMessage()}`;
+    return reply(t(lang, "invalidDept"), [...departmentsOptions(lang), backToMenuOption(lang)]);
   }
   conversation.data.dept = dept.id;
   conversation.state = "avail_doctor";
   store.saveConversation(phone, conversation);
-  return doctorsListMessage(dept);
+  return reply(t(lang, "chooseDoctor"), [...doctorsOptions(dept.id, lang), backToMenuOption(lang)]);
 }
 
-async function handleAvailDoctor(phone, conversation, text) {
+async function handleAvailDoctor(phone, conversation, text, lang) {
   const dept = conversation.data.dept;
-  let doctor = findDoctorByIndex(text, dept) || findDoctorByName(text);
+  let doctor = null;
+  if (text.startsWith("doctor:")) doctor = findDoctorById(text.slice(7));
+  if (!doctor) doctor = findDoctorByIndex(text, dept);
   if (!doctor) {
-    const deptObj = DEPARTMENTS.find((d) => d.id === dept);
-    return `⚠️ لم أتعرف على الطبيب. ${doctorsListMessage(deptObj)}`;
+    return reply(t(lang, "invalidDoctor"), [...doctorsOptions(dept, lang), backToMenuOption(lang)]);
   }
   conversation.data.doctorId = doctor.id;
-  conversation.data.doctorName = doctor.name;
   conversation.state = "avail_date";
   store.saveConversation(phone, conversation);
-  return `📅 أدخل التاريخ الذي تريد التحقق منه بصيغة *YYYY-MM-DD*:`;
+  return reply(`${t(lang, "availDateQuestion")}\n${lang === "en" ? "(Format: YYYY-MM-DD)" : "(الصيغة: YYYY-MM-DD)"}`, [backToMenuOption(lang)]);
 }
 
-async function handleAvailDate(phone, conversation, text) {
+async function handleAvailDate(phone, conversation, text, lang) {
   const date = isValidDate(text);
   if (!date) {
-    return `⚠️ صيغة التاريخ غير صحيحة. يرجى إدخال التاريخ بصيغة *YYYY-MM-DD*.`;
+    return reply(t(lang, "invalidDate"), [backToMenuOption(lang)]);
   }
-  const taken = TIME_SLOTS.filter((t) => store.isSlotTaken(conversation.data.doctorId, date, t));
-  const available = TIME_SLOTS.filter((t) => !taken.includes(t));
+  const doctor = findDoctorById(conversation.data.doctorId);
+  const available = TIME_SLOTS.filter((time) => !store.isSlotTaken(conversation.data.doctorId, date, time));
 
   conversation.state = "idle";
   conversation.data = {};
   store.saveConversation(phone, conversation);
 
   if (available.length === 0) {
-    return `❌ لا توجد أوقات متاحة لدى ${conversation.data.doctorName || "الطبيب"} في ${date}.\n\nاكتب "القائمة" للعودة.`;
+    return reply(t(lang, "availNone", doctorName(doctor, lang), date), mainMenuOptions(lang));
   }
 
-  return (
-    `✅ *الأوقات المتاحة في ${date}:*\n\n` +
-    available.map((t) => `• ${t}`).join("\n") +
-    `\n\nللحجز مباشرة، اكتب "حجز" أو "1".`
-  );
+  const text2 = `${t(lang, "availResultsTitle", date)}\n\n` + available.map((tm) => `• ${tm}`).join("\n");
+  return reply(text2, [{ label: t(lang, "bookNow"), value: "book" }, backToMenuOption(lang)]);
 }
 
 // ===================== الموجه الرئيسي (Router) =====================
 
-async function processMessage(phone, text) {
+async function processMessage(phone, rawText) {
   const conversation = store.getConversation(phone);
-  const t = text.trim();
-  const tLower = t.toLowerCase();
+  let lang = conversation.lang || "ar";
+  const text = String(rawText).trim();
+  const tLower = text.toLowerCase();
 
-  // حفظ آخر رسالة في السجل
   conversation.history = conversation.history || [];
-  conversation.history.push({ from: "user", text: t, at: new Date().toISOString() });
+  conversation.history.push({ from: "user", text, at: new Date().toISOString() });
   if (conversation.history.length > 50) conversation.history = conversation.history.slice(-50);
 
-  // ----- إذا كانت المحادثة محوّلة لموظف، لا يرد الإيجنت تلقائياً -----
+  // ----- تبديل اللغة -----
+  if (tLower === "lang:en" || tLower === "english" || tLower === "/en") {
+    conversation.lang = "en";
+    store.saveConversation(phone, conversation);
+    return welcomeMessage("en");
+  }
+  if (tLower === "lang:ar" || tLower === "عربي" || tLower === "/ar") {
+    conversation.lang = "ar";
+    store.saveConversation(phone, conversation);
+    return welcomeMessage("ar");
+  }
+
+  // ----- إذا كانت المحادثة محوّلة لموظف -----
   if (conversation.handedOff) {
-    if (tLower.includes("قائمة") || tLower.includes("القائمة") || tLower === "menu") {
+    if (tLower === "menu" || tLower.includes("القائمة") || tLower.includes("قائمة")) {
       conversation.handedOff = false;
       conversation.state = "idle";
       store.saveConversation(phone, conversation);
-      return welcomeMessage();
+      return welcomeMessage(lang);
     }
-    // لا رد تلقائي - الموظف هو من يرد
     return null;
   }
 
-  // ----- أوامر عامة تعمل من أي حالة -----
-  if (tLower.includes("القائمة") || tLower.includes("قائمة") || tLower === "menu" || t === "0") {
+  // ----- العودة للقائمة الرئيسية من أي حالة -----
+  if (tLower === "menu" || tLower.includes("القائمة") || tLower === "0") {
     conversation.state = "idle";
     conversation.data = {};
     store.saveConversation(phone, conversation);
-    return welcomeMessage();
+    return welcomeMessage(lang);
   }
 
-  if (tLower.includes("موظف") || tLower.includes("استقبال") || tLower.includes("بشري") || tLower.includes("تحويل")) {
-    return await handoffToReception(phone, conversation, "طلب العميل التحدث مع موظف الاستقبال", t);
+  // ----- التحويل لموظف الاستقبال -----
+  if (
+    tLower === "reception" ||
+    tLower.includes("موظف") ||
+    tLower.includes("استقبال") ||
+    tLower.includes("بشري") ||
+    tLower.includes("reception") ||
+    tLower.includes("human")
+  ) {
+    return await handoffToReception(phone, conversation, "طلب العميل التحدث مع موظف الاستقبال", text, lang);
   }
 
-  // ----- بدء محادثة جديدة (تحية أو رسالة أولى) -----
-  const greetings = ["السلام", "سلام", "هلا", "مرحبا", "مرحباً", "hi", "hello", "السلام عليكم"];
-  if (conversation.state === "idle" && (greetings.some((g) => tLower.includes(g)) || conversation.history.length <= 1)) {
-    if (!greetings.some((g) => tLower.includes(g)) && conversation.history.length <= 1 && /^[1-7]$/.test(t)) {
-      // المستخدم بدأ مباشرة برقم - تعامل معه كاختيار من القائمة
-    } else if (conversation.history.length <= 1) {
-      conversation.state = "idle";
+  // ----- أول رسالة في المحادثة -----
+  if (conversation.history.length <= 1 && conversation.state === "idle") {
+    // إذا الرسالة الأولى ليست أمراً معروفاً، أرسل الترحيب
+    const known = ["book", "departments", "hours", "location", "modify", "cancel", "availability"];
+    if (!known.includes(tLower) && !tLower.startsWith("dept:")) {
       store.saveConversation(phone, conversation);
-      return welcomeMessage();
+      return welcomeMessage(lang);
     }
   }
 
-  // ----- التوجيه حسب الحالة الحالية -----
+  // ----- التوجيه حسب الحالة -----
   switch (conversation.state) {
     case "booking_dept":
-      return await handleBookingDept(phone, conversation, t);
+      return await handleBookingDept(phone, conversation, text, lang);
     case "booking_doctor":
-      return await handleBookingDoctor(phone, conversation, t);
+      return await handleBookingDoctor(phone, conversation, text, lang);
     case "booking_date":
-      return await handleBookingDate(phone, conversation, t);
+      return await handleBookingDate(phone, conversation, text, lang);
     case "booking_time":
-      return await handleBookingTime(phone, conversation, t);
+      return await handleBookingTime(phone, conversation, text, lang);
     case "booking_name":
-      return await handleBookingName(phone, conversation, t);
+      return await handleBookingName(phone, conversation, text, lang);
     case "booking_phone":
-      return await handleBookingPhone(phone, conversation, t);
+      return await handleBookingPhone(phone, conversation, text, lang);
     case "booking_age":
-      return await handleBookingAge(phone, conversation, t);
+      return await handleBookingAge(phone, conversation, text, lang);
     case "booking_gender":
-      return await handleBookingGender(phone, conversation, t);
+      return await handleBookingGender(phone, conversation, text, lang);
     case "booking_reason":
-      return await handleBookingReason(phone, conversation, t);
+      return await handleBookingReason(phone, conversation, text, lang);
     case "booking_confirm":
-      return await handleBookingConfirm(phone, conversation, t);
+      return await handleBookingConfirm(phone, conversation, text, lang);
 
     case "cancel_select":
-      return await handleCancelSelect(phone, conversation, t);
+      return await handleCancelSelect(phone, conversation, text, lang);
 
     case "modify_select":
-      return await handleModifySelect(phone, conversation, t);
+      return await handleModifySelect(phone, conversation, text, lang);
     case "modify_date":
-      return await handleModifyDate(phone, conversation, t);
+      return await handleModifyDate(phone, conversation, text, lang);
     case "modify_time":
-      return await handleModifyTime(phone, conversation, t);
+      return await handleModifyTime(phone, conversation, text, lang);
 
     case "avail_dept":
-      return await handleAvailDept(phone, conversation, t);
+      return await handleAvailDept(phone, conversation, text, lang);
     case "avail_doctor":
-      return await handleAvailDoctor(phone, conversation, t);
+      return await handleAvailDoctor(phone, conversation, text, lang);
     case "avail_date":
-      return await handleAvailDate(phone, conversation, t);
+      return await handleAvailDate(phone, conversation, text, lang);
 
     case "idle":
     default:
-      return await handleIdleState(phone, conversation, t, tLower);
+      return await handleIdleState(phone, conversation, text, tLower, lang);
   }
 }
 
-// ===================== معالجة الحالة الخالية (idle) - فهم النوايا =====================
+// ===================== معالجة الحالة الخالية (idle) =====================
 
-async function handleIdleState(phone, conversation, t, tLower) {
-  // 1. حجز موعد
-  if (
-    t === "1" ||
-    tLower.includes("حجز") ||
-    tLower.includes("احجز") ||
-    tLower.includes("موعد جديد") ||
-    tLower.includes("اريد موعد") ||
-    tLower.includes("أريد موعد")
-  ) {
-    return await startBooking(phone, conversation);
+async function handleIdleState(phone, conversation, text, tLower, lang) {
+  // حجز موعد
+  if (tLower === "book" || tLower === "1" || tLower.includes("حجز") || tLower.includes("احجز") || tLower.includes("book")) {
+    return await startBooking(phone, conversation, lang);
   }
 
-  // 2. الأقسام والأطباء
+  // الأقسام والأطباء
   if (
-    t === "2" ||
+    tLower === "departments" ||
+    tLower === "2" ||
     tLower.includes("اقسام") ||
     tLower.includes("أقسام") ||
     tLower.includes("اطباء") ||
     tLower.includes("أطباء") ||
-    tLower.includes("تخصص")
+    tLower.includes("department") ||
+    tLower.includes("doctor")
   ) {
-    return departmentsListMessage();
+    return departmentsMessage(lang);
   }
 
-  // 3. مواعيد العمل
-  if (t === "3" || tLower.includes("مواعيد العمل") || tLower.includes("ساعات العمل") || tLower.includes("متى تفتح") || tLower.includes("دوام")) {
-    return workingHoursMessage();
+  // قسم مباشرة (dept:xxx)
+  if (tLower.startsWith("dept:")) {
+    const dept = findDeptById(tLower.slice(5));
+    if (dept) return doctorsMessage(dept, lang);
   }
 
-  // 4. العنوان والموقع
-  if (
-    t === "4" ||
-    tLower.includes("عنوان") ||
-    tLower.includes("موقع") ||
-    tLower.includes("وين") ||
-    tLower.includes("فين") ||
-    tLower.includes("اين") ||
-    tLower.includes("أين")
-  ) {
-    const msg = locationMessage();
-    // إرسال الموقع الجغرافي بعد رسالة العنوان
+  // مواعيد العمل
+  if (tLower === "hours" || tLower === "3" || tLower.includes("مواعيد العمل") || tLower.includes("ساعات العمل") || tLower.includes("hours") || tLower.includes("دوام")) {
+    return workingHoursMessage(lang);
+  }
+
+  // العنوان والموقع
+  if (tLower === "location" || tLower === "4" || tLower.includes("عنوان") || tLower.includes("موقع") || tLower.includes("location") || tLower.includes("address") || tLower.includes("اين") || tLower.includes("أين")) {
+    const msg = locationMessage(lang);
     setTimeout(() => {
-      sendLocation(phone, 25.2117, 55.2789, HOSPITAL_INFO.name + " - " + HOSPITAL_INFO.address);
+      sendLocation(phone, 25.2117, 55.2789, `${hospitalName(lang)} - ${hospitalAddress(lang)}`);
     }, 1500);
     return msg;
   }
 
-  // 5. تعديل موعد
-  if (t === "5" || tLower.includes("تعديل") || tLower.includes("تغيير الموعد") || tLower.includes("غير الموعد") || tLower.includes("اعادة جدولة") || tLower.includes("إعادة جدولة")) {
-    return await startModifyCancel(phone, conversation, "modify");
+  // تعديل موعد
+  if (tLower === "modify" || tLower === "5" || tLower.includes("تعديل") || tLower.includes("modify") || tLower.includes("reschedul")) {
+    return await startModifyCancel(phone, conversation, "modify", lang);
   }
 
-  // 6. إلغاء موعد
-  if (t === "6" || tLower.includes("الغاء") || tLower.includes("إلغاء") || tLower.includes("الغ") || tLower.includes("كنسل") || tLower.includes("cancel")) {
-    return await startModifyCancel(phone, conversation, "cancel");
-  }
-
-  // 7. التحويل لموظف (تمت معالجته أعلاه أيضاً لكن نتركه هنا للأمان)
-  if (t === "7") {
-    return await handoffToReception(phone, conversation, "طلب العميل التحدث مع موظف الاستقبال", t);
+  // إلغاء موعد
+  if (tLower === "cancel" || tLower === "6" || tLower.includes("الغاء") || tLower.includes("إلغاء") || tLower.includes("cancel")) {
+    return await startModifyCancel(phone, conversation, "cancel", lang);
   }
 
   // التحقق من التوفر
-  if (tLower.includes("متاح") || tLower.includes("توفر") || tLower.includes("فاضي") || tLower.includes("فراغ")) {
-    return await startAvailabilityCheck(phone, conversation);
+  if (tLower === "availability" || tLower.includes("متاح") || tLower.includes("توفر") || tLower.includes("availab")) {
+    return await startAvailabilityCheck(phone, conversation, lang);
   }
 
-  // الاستفسار عن سعر الكشف لطبيب معين
-  const doctorMatch = findDoctorByName(t);
-  if (doctorMatch && (tLower.includes("سعر") || tLower.includes("كشف") || tLower.includes("تكلفة"))) {
-    return `💰 سعر الكشف لدى ${doctorMatch.name} (${doctorMatch.title}): *${doctorMatch.fee} د.إ*\n⏱ مدة الموعد: ${doctorMatch.duration} دقيقة\n\nللحجز اكتب "حجز" أو "1".`;
-  }
-
-  // الاستفسار عن قسم معين مباشرة
-  const deptMatch = findDeptByText(t);
-  if (deptMatch) {
-    return doctorsListMessage(deptMatch);
-  }
-
-  // إذا لم يفهم الإيجنت الطلب نهائياً - تحويل لموظف
+  // إذا لم يُفهم الطلب
   if (conversation.unresolvedCount === undefined) conversation.unresolvedCount = 0;
   conversation.unresolvedCount += 1;
   store.saveConversation(phone, conversation);
@@ -766,10 +825,10 @@ async function handleIdleState(phone, conversation, t, tLower) {
   if (conversation.unresolvedCount >= 2) {
     conversation.unresolvedCount = 0;
     store.saveConversation(phone, conversation);
-    return await handoffToReception(phone, conversation, "لم يتمكن الإيجنت من فهم طلب العميل بعد محاولتين", t);
+    return await handoffToReception(phone, conversation, "لم يتمكن الإيجنت من فهم طلب العميل بعد محاولتين", text, lang);
   }
 
-  return genericErrorMessage();
+  return reply(t(lang, "genericError"), mainMenuOptions(lang));
 }
 
 module.exports = { processMessage, welcomeMessage };
