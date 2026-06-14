@@ -477,14 +477,44 @@ async function handleBookingConfirm(phone, conversation, text, lang) {
 // ===================== تعديل / إلغاء الموعد =====================
 
 async function startModifyCancel(phone, conversation, action, lang) {
-  const bookings = store.findBookingsByPhone(phone);
+  // جلسات الموقع (web-xxxx) لا تحتوي رقم هاتف مخزّناً — نطلبه من المستخدم
+  if (String(phone).startsWith("web-")) {
+    conversation.state = action === "modify" ? "modify_phone_lookup" : "cancel_phone_lookup";
+    conversation.data = {};
+    store.saveConversation(phone, conversation);
+    const msg = lang === "en"
+      ? `📱 To find your bookings, please enter your phone number used during booking:`
+      : `📱 للبحث عن حجوزاتك، يرجى إدخال رقم الهاتف الذي استخدمته عند الحجز:`;
+    return reply(msg, [backToMenuOption(lang)], "text");
+  }
+
+  return await findAndShowBookings(phone, phone, conversation, action, lang);
+}
+
+async function handlePhoneLookup(phone, conversation, text, lang, action) {
+  const raw = text.trim();
+  const digits = raw.replace(/[^\d]/g, "");
+  if (digits.length < 7) {
+    const msg = lang === "en"
+      ? "⚠️ Please enter a valid phone number (e.g. 05XXXXXXXX)."
+      : "⚠️ يرجى إدخال رقم هاتف صحيح (مثال: 05XXXXXXXX).";
+    return reply(msg, [backToMenuOption(lang)], "text");
+  }
+  return await findAndShowBookings(phone, raw, conversation, action, lang);
+}
+
+async function findAndShowBookings(sessionPhone, searchPhone, conversation, action, lang) {
+  const bookings = store.findBookingsByPhone(searchPhone);
   if (bookings.length === 0) {
-    return reply(t(lang, "noBookingsFound"), mainMenuOptions(lang));
+    const msg = lang === "en"
+      ? `No bookings found for the number ${searchPhone}. Please make sure you entered the number used during booking.`
+      : `لم أجد أي حجوزات برقم ${searchPhone}. تأكد أنك أدخلت الرقم المستخدم عند الحجز.`;
+    return reply(msg, [backToMenuOption(lang)]);
   }
 
   conversation.state = action === "modify" ? "modify_select" : "cancel_select";
   conversation.data = { bookings: bookings.map((b) => b.id) };
-  store.saveConversation(phone, conversation);
+  store.saveConversation(sessionPhone, conversation);
 
   let text = `${t(lang, "yourBookings")}\n\n`;
   bookings.forEach((b) => {
@@ -492,7 +522,7 @@ async function startModifyCancel(phone, conversation, action, lang) {
   });
   text += action === "modify" ? t(lang, "selectBookingToModify") : t(lang, "selectBookingToCancel");
 
-  const options = bookings.map((b, i) => ({
+  const options = bookings.map((b) => ({
     label: `${b.id} - ${b.doctorName} (${b.date} ${b.time})`,
     value: `booking:${b.id}`,
   }));
@@ -755,8 +785,14 @@ async function processMessage(phone, rawText) {
     case "booking_confirm":
       return await handleBookingConfirm(phone, conversation, text, lang);
 
+    case "cancel_phone_lookup":
+      return await handlePhoneLookup(phone, conversation, text, lang, "cancel");
+
     case "cancel_select":
       return await handleCancelSelect(phone, conversation, text, lang);
+
+    case "modify_phone_lookup":
+      return await handlePhoneLookup(phone, conversation, text, lang, "modify");
 
     case "modify_select":
       return await handleModifySelect(phone, conversation, text, lang);
