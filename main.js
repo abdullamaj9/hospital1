@@ -1,15 +1,9 @@
 // ===================== مستشفى الموسي التخصصي - main.js =====================
 
-// ---------- تخزين الحجوزات والرسائل محلياً ----------
-const STORAGE_KEYS = { bookings: "almousa_bookings", messages: "almousa_messages" };
+const AGENT_API = "https://hospital1-d85j.onrender.com";
+const STORAGE_KEYS = { messages: "almousa_messages" }; // الرسائل فقط تبقى محلية
 
-function getBookings() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.bookings)) || []; }
-  catch { return []; }
-}
-function saveBookings(list) {
-  localStorage.setItem(STORAGE_KEYS.bookings, JSON.stringify(list));
-}
+// الرسائل تبقى محلية (نموذج التواصل)
 function getMessages() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.messages)) || []; }
   catch { return []; }
@@ -214,14 +208,24 @@ function animateStats() {
   stats.forEach(s => observer.observe(s));
 }
 
-// ---------- التحقق من تعارض المواعيد ----------
-function isSlotTaken(doctorId, date, time) {
-  const bookings = getBookings();
-  return bookings.some(b => b.doctorId === doctorId && b.date === date && b.time === time && b.status !== "ملغى");
+// ---------- التحقق من تعارض المواعيد (عبر Render) ----------
+async function isSlotTaken(doctorId, date, time) {
+  try {
+    const res = await fetch(`${AGENT_API}/api/bookings`);
+    if (!res.ok) return false;
+    const bookings = await res.json();
+    return bookings.some(b =>
+      b.doctorId === doctorId &&
+      b.date === date &&
+      b.time === time &&
+      b.status !== "ملغى"
+    );
+  } catch {
+    return false; // إذا السيرفر غير متاح، لا نمنع الحجز
+  }
 }
 
-// ---------- معالجة الحجز ----------
-const AGENT_API = "https://hospital1-d85j.onrender.com";
+
 
 async function handleBookingSubmit(formPrefix, sourceLabel) {
   const dept = document.getElementById(`${formPrefix}Dept`).value;
@@ -236,7 +240,9 @@ async function handleBookingSubmit(formPrefix, sourceLabel) {
     return false;
   }
 
-  if (isSlotTaken(doctorId, date, time)) {
+  // التحقق من التعارض عبر Render
+  const taken = await isSlotTaken(doctorId, date, time);
+  if (taken) {
     showToast("⚠️ هذا الموعد محجوز مسبقاً لدى هذا الطبيب، يرجى اختيار وقت آخر", true);
     return false;
   }
@@ -260,12 +266,7 @@ async function handleBookingSubmit(formPrefix, sourceLabel) {
     createdAt: new Date().toISOString(),
   };
 
-  // 1. حفظ محلي فوري (localStorage)
-  const bookings = getBookings();
-  bookings.push(booking);
-  saveBookings(bookings);
-
-  // 2. إرسال لـ Render (لتوحيد الحجوزات مع الإيجنت)
+  // إرسال لـ Render فقط (بدون localStorage)
   try {
     const res = await fetch(`${AGENT_API}/api/bookings`, {
       method: "POST",
@@ -273,15 +274,13 @@ async function handleBookingSubmit(formPrefix, sourceLabel) {
       body: JSON.stringify(booking),
     });
     if (res.status === 409) {
-      // تعارض موعد على سيرفر الإيجنت — أزل الحجز المحلي وأبلغ المستخدم
-      const updated = getBookings().filter(b => b.id !== booking.id);
-      saveBookings(updated);
       showToast("⚠️ هذا الموعد محجوز للتو من شخص آخر، يرجى اختيار وقت آخر", true);
       return false;
     }
+    if (!res.ok) throw new Error("server error");
   } catch (err) {
-    // السيرفر غير متاح (نائم/خارج الخدمة) — الحجز محفوظ محلياً فقط
-    console.warn("⚠️ تعذر إرسال الحجز لسيرفر الإيجنت:", err.message);
+    showToast("⚠️ تعذر الاتصال بالسيرفر، يرجى المحاولة لاحقاً أو التواصل عبر واتساب", true);
+    return false;
   }
 
   showToast(`✅ تم تأكيد حجزك بنجاح مع ${booking.doctorName} - رقم الحجز: ${booking.id}`);

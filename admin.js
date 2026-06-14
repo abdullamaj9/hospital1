@@ -1,61 +1,42 @@
 // ===================== لوحة الإدارة - admin.js =====================
 
 const ADMIN_CREDENTIALS = { username: "admin", password: "almousa2026" };
-const STORAGE_KEYS = { bookings: "almousa_bookings", messages: "almousa_messages", session: "almousa_admin_session" };
-const AGENT_API_BASE = "https://hospital1-d85j.onrender.com"; // رابط سيرفر إيجنت الواتساب/الموقع على Render
+const STORAGE_KEYS = { messages: "almousa_messages", session: "almousa_admin_session" };
+const AGENT_API_BASE = "https://hospital1-d85j.onrender.com";
 
-// ---------- Helpers ----------
-function getLocalBookings() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.bookings)) || []; }
-  catch { return []; }
-}
-function saveLocalBookings(list) { localStorage.setItem(STORAGE_KEYS.bookings, JSON.stringify(list)); }
-
-// جلب حجوزات الإيجنت (واتساب + شات الموقع) من سيرفر Render
+// ---------- الحجوزات — من Render فقط ----------
 async function getAgentBookings() {
   try {
     const res = await fetch(`${AGENT_API_BASE}/api/bookings`);
     if (!res.ok) throw new Error("network");
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    return await res.json();
   } catch (err) {
-    console.warn("⚠️ تعذر جلب حجوزات الإيجنت من Render:", err.message);
-    return null; // null = فشل الجلب (مختلف عن مصفوفة فاضية)
+    console.warn("⚠️ تعذر جلب الحجوزات من Render:", err.message);
+    return null;
   }
 }
 
-// دمج حجوزات الموقع (localStorage) مع حجوزات الإيجنت (Render) بدون تكرار
-function mergeBookings(localList, agentList) {
-  const merged = [...localList];
-  const localIds = new Set(localList.map((b) => b.id));
-  (agentList || []).forEach((b) => {
-    if (!localIds.has(b.id)) merged.push(b);
-  });
-  return merged;
-}
-
-// متغير يحتفظ بآخر نسخة مدموجة من الحجوزات (تُحدّث عند initDashboard وبعد كل تحديث/حذف)
 let CACHED_BOOKINGS = [];
 let AGENT_OFFLINE = false;
 
 async function refreshBookingsCache() {
-  const local = getLocalBookings();
-  const agent = await getAgentBookings();
-  AGENT_OFFLINE = agent === null;
-  CACHED_BOOKINGS = mergeBookings(local, agent || []);
+  const bookings = await getAgentBookings();
+  AGENT_OFFLINE = bookings === null;
+  CACHED_BOOKINGS = bookings || [];
   return CACHED_BOOKINGS;
 }
 
-// تُستخدم بدلاً من القراءة المباشرة من localStorage في كل أماكن العرض
 function getBookings() {
   return CACHED_BOOKINGS;
 }
 
+// الرسائل تبقى محلية (نموذج التواصل)
 function getMessages() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.messages)) || []; }
   catch { return []; }
 }
 function saveMessages(list) { localStorage.setItem(STORAGE_KEYS.messages, JSON.stringify(list)); }
+
 
 function showToast(message, isError = false) {
   const toast = document.getElementById("toast");
@@ -165,10 +146,6 @@ function renderOverview() {
 }
 
 // ---------- الحجوزات ----------
-function isAgentBooking(b) {
-  return b.source === "إيجنت واتساب" || b.source === "إيجنت الموقع";
-}
-
 function renderBookings() {
   const filter = document.getElementById("bookingStatusFilter").value;
   const bookings = getBookings().slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -187,7 +164,7 @@ function renderBookings() {
   emptyEl.style.display = "none";
 
   tbody.innerHTML = filtered.map(b => `
-    <tr data-id="${b.id}" data-source="${isAgentBooking(b) ? 'agent' : 'local'}">
+    <tr data-id="${b.id}">
       <td>${b.id}</td>
       <td>${b.name}</td>
       <td>${b.phone}</td>
@@ -212,64 +189,33 @@ function renderBookings() {
   // تحديث الحالة
   tbody.querySelectorAll('select[data-action="status"]').forEach(sel => {
     sel.addEventListener("change", async () => {
-      const tr = sel.closest("tr");
-      const id = tr.dataset.id;
-      const source = tr.dataset.source;
-      const newStatus = sel.value;
-
-      if (source === "agent") {
-        if (AGENT_OFFLINE) {
-          showToast("⚠️ لا يمكن التحديث: تعذر الاتصال بسيرفر الإيجنت", true);
-          return;
-        }
-        const ok = await updateAgentBookingStatus(id, newStatus);
-        if (!ok) {
-          showToast("⚠️ فشل تحديث الحجز على سيرفر الإيجنت", true);
-          return;
-        }
+      const id = sel.closest("tr").dataset.id;
+      const ok = await updateAgentBookingStatus(id, sel.value);
+      if (ok) {
+        showToast("تم تحديث حالة الحجز");
+        await refreshBookingsCache();
+        renderBookings();
+        renderOverview();
       } else {
-        const list = getLocalBookings();
-        const idx = list.findIndex(b => b.id === id);
-        if (idx > -1) {
-          list[idx].status = newStatus;
-          saveLocalBookings(list);
-        }
+        showToast("⚠️ فشل تحديث الحجز", true);
       }
-
-      showToast("تم تحديث حالة الحجز");
-      await refreshBookingsCache();
-      renderBookings();
-      renderOverview();
     });
   });
 
   // حذف
   tbody.querySelectorAll('button[data-action="delete"]').forEach(btn => {
     btn.addEventListener("click", async () => {
-      const tr = btn.closest("tr");
-      const id = tr.dataset.id;
-      const source = tr.dataset.source;
+      const id = btn.closest("tr").dataset.id;
       if (!confirm("هل أنت متأكد من حذف هذا الحجز؟")) return;
-
-      if (source === "agent") {
-        if (AGENT_OFFLINE) {
-          showToast("⚠️ لا يمكن الحذف: تعذر الاتصال بسيرفر الإيجنت", true);
-          return;
-        }
-        const ok = await deleteAgentBooking(id);
-        if (!ok) {
-          showToast("⚠️ فشل حذف الحجز من سيرفر الإيجنت", true);
-          return;
-        }
+      const ok = await deleteAgentBooking(id);
+      if (ok) {
+        showToast("تم حذف الحجز");
+        await refreshBookingsCache();
+        renderBookings();
+        renderOverview();
       } else {
-        const list = getLocalBookings().filter(b => b.id !== id);
-        saveLocalBookings(list);
+        showToast("⚠️ فشل حذف الحجز", true);
       }
-
-      showToast("تم حذف الحجز");
-      await refreshBookingsCache();
-      renderBookings();
-      renderOverview();
     });
   });
 }
