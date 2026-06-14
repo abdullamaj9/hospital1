@@ -52,17 +52,18 @@ function updateBooking(id, updates) {
 }
 
 function findBookingsByPhone(phone) {
-  const normalized = normalizePhone(phone);
   const raw = String(phone).trim();
+  const digits = raw.replace(/[^\d]/g, "");
   return getBookings().filter((b) => {
     if (b.status === "ملغى") return false;
-    const bNorm = normalizePhone(b.phone);
-    // مطابقة بالرقم المطبَّع، أو بالرقم الخام مباشرة، أو بالرقم الجزئي (آخر 9 أرقام)
-    if (bNorm === normalized) return true;
-    if (b.phone === raw) return true;
-    // مطابقة مرنة: آخر 9 أرقام (تتجاهل فرق الكود الدولي)
-    const tail = (s) => String(s).replace(/[^\d]/g, "").slice(-9);
-    if (tail(b.phone) === tail(raw) && tail(raw).length >= 7) return true;
+    const bDigits = String(b.phone || "").replace(/[^\d]/g, "");
+    // 1. مطابقة خام تام
+    if (String(b.phone).trim() === raw) return true;
+    // 2. مطابقة الأرقام فقط (بعد إزالة المسافات والرموز)
+    if (bDigits === digits && digits.length >= 7) return true;
+    // 3. مطابقة آخر 9 أرقام (تتجاهل فرق الكود الدولي)
+    const tail = (s) => s.slice(-9);
+    if (digits.length >= 9 && bDigits.length >= 9 && tail(bDigits) === tail(digits)) return true;
     return false;
   });
 }
