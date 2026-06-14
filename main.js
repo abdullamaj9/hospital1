@@ -221,7 +221,9 @@ function isSlotTaken(doctorId, date, time) {
 }
 
 // ---------- معالجة الحجز ----------
-function handleBookingSubmit(formPrefix, sourceLabel) {
+const AGENT_API = "https://hospital1-d85j.onrender.com";
+
+async function handleBookingSubmit(formPrefix, sourceLabel) {
   const dept = document.getElementById(`${formPrefix}Dept`).value;
   const doctorId = document.getElementById(`${formPrefix}Doctor`).value;
   const date = document.getElementById(`${formPrefix}Date`).value;
@@ -258,9 +260,29 @@ function handleBookingSubmit(formPrefix, sourceLabel) {
     createdAt: new Date().toISOString(),
   };
 
+  // 1. حفظ محلي فوري (localStorage)
   const bookings = getBookings();
   bookings.push(booking);
   saveBookings(bookings);
+
+  // 2. إرسال لـ Render (لتوحيد الحجوزات مع الإيجنت)
+  try {
+    const res = await fetch(`${AGENT_API}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(booking),
+    });
+    if (res.status === 409) {
+      // تعارض موعد على سيرفر الإيجنت — أزل الحجز المحلي وأبلغ المستخدم
+      const updated = getBookings().filter(b => b.id !== booking.id);
+      saveBookings(updated);
+      showToast("⚠️ هذا الموعد محجوز للتو من شخص آخر، يرجى اختيار وقت آخر", true);
+      return false;
+    }
+  } catch (err) {
+    // السيرفر غير متاح (نائم/خارج الخدمة) — الحجز محفوظ محلياً فقط
+    console.warn("⚠️ تعذر إرسال الحجز لسيرفر الإيجنت:", err.message);
+  }
 
   showToast(`✅ تم تأكيد حجزك بنجاح مع ${booking.doctorName} - رقم الحجز: ${booking.id}`);
   return true;
@@ -278,9 +300,9 @@ function setupForms() {
   // الحجز السريع
   const quickForm = document.getElementById("quickBookingForm");
   if (quickForm) {
-    quickForm.addEventListener("submit", (e) => {
+    quickForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const success = handleBookingSubmit("q", "الحجز السريع (الصفحة الرئيسية)");
+      const success = await handleBookingSubmit("q", "الحجز السريع (الصفحة الرئيسية)");
       if (success) quickForm.reset();
     });
   }
@@ -288,9 +310,9 @@ function setupForms() {
   // الحجز الكامل
   const fullForm = document.getElementById("fullBookingForm");
   if (fullForm) {
-    fullForm.addEventListener("submit", (e) => {
+    fullForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const success = handleBookingSubmit("b", "نموذج الحجز الكامل");
+      const success = await handleBookingSubmit("b", "نموذج الحجز الكامل");
       if (success) fullForm.reset();
     });
   }
@@ -339,7 +361,7 @@ function setupNavToggle() {
 function setupWhatsApp() {
   const btn = document.getElementById("whatsappFloat");
   if (!btn) return;
-  const phone = "971501234567"; // رقم تجريبي
+  const phone = "971566350025"; // رقم مستشفى الموسي على واتساب
   const text = encodeURIComponent("السلام عليكم، أود الاستفسار عن حجز موعد في مستشفى الموسي التخصصي.");
   btn.href = `https://wa.me/${phone}?text=${text}`;
   btn.target = "_blank";

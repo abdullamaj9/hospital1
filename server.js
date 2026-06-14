@@ -136,6 +136,39 @@ app.get("/api/bookings", (req, res) => {
   res.json(store.getBookings());
 });
 
+// استقبال حجز جديد من نموذج الموقع (index.html)
+app.post("/api/bookings", (req, res) => {
+  const b = req.body || {};
+  if (!b.id || !b.doctorId || !b.date || !b.time || !b.name || !b.phone) {
+    return res.status(400).json({ status: "error", message: "بيانات الحجز غير مكتملة" });
+  }
+  // تأكد من عدم التعارض
+  if (store.isSlotTaken(b.doctorId, b.date, b.time)) {
+    return res.status(409).json({ status: "conflict", message: "هذا الوقت محجوز مسبقاً" });
+  }
+  const booking = {
+    id: b.id,
+    deptId: b.deptId || "",
+    deptName: b.deptName || "",
+    doctorId: b.doctorId,
+    doctorName: b.doctorName || "",
+    date: b.date,
+    time: b.time,
+    name: b.name,
+    phone: b.phone,
+    email: b.email || "",
+    age: b.age || "",
+    gender: b.gender || "",
+    reason: b.reason || "",
+    source: b.source || "نموذج الموقع",
+    status: "جديد",
+    createdAt: b.createdAt || new Date().toISOString(),
+  };
+  store.addBooking(booking);
+  console.log(`📋 حجز جديد من الموقع: ${booking.id} - ${booking.name}`);
+  res.json({ status: "ok", booking });
+});
+
 // تحديث حالة حجز (من لوحة الإدارة)
 app.patch("/api/bookings/:id", (req, res) => {
   const { id } = req.params;
