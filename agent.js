@@ -506,10 +506,14 @@ async function handlePhoneLookup(phone, conversation, text, lang, action) {
 async function findAndShowBookings(sessionPhone, searchPhone, conversation, action, lang) {
   const bookings = store.findBookingsByPhone(searchPhone);
   if (bookings.length === 0) {
+    // أبقِ نفس الحالة حتى يعيد المستخدم المحاولة برقم صحيح
+    const lookupState = action === "modify" ? "modify_phone_lookup" : "cancel_phone_lookup";
+    conversation.state = lookupState;
+    store.saveConversation(sessionPhone, conversation);
     const msg = lang === "en"
-      ? `No bookings found for the number ${searchPhone}. Please make sure you entered the number used during booking.`
-      : `لم أجد أي حجوزات برقم ${searchPhone}. تأكد أنك أدخلت الرقم المستخدم عند الحجز.`;
-    return reply(msg, [backToMenuOption(lang)]);
+      ? `📱 No bookings found for this number.\n\nMake sure you enter the same number you used when booking.\n\nTry again:`
+      : `📱 لم أجد أي حجوزات بهذا الرقم.\n\nتأكد أنك تدخل نفس الرقم الذي استخدمته عند الحجز بالضبط.\n\nحاول مرة أخرى:`;
+    return reply(msg, [backToMenuOption(lang)], "text");
   }
 
   conversation.state = action === "modify" ? "modify_select" : "cancel_select";

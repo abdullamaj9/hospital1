@@ -53,7 +53,18 @@ function updateBooking(id, updates) {
 
 function findBookingsByPhone(phone) {
   const normalized = normalizePhone(phone);
-  return getBookings().filter((b) => normalizePhone(b.phone) === normalized && b.status !== "ملغى");
+  const raw = String(phone).trim();
+  return getBookings().filter((b) => {
+    if (b.status === "ملغى") return false;
+    const bNorm = normalizePhone(b.phone);
+    // مطابقة بالرقم المطبَّع، أو بالرقم الخام مباشرة، أو بالرقم الجزئي (آخر 9 أرقام)
+    if (bNorm === normalized) return true;
+    if (b.phone === raw) return true;
+    // مطابقة مرنة: آخر 9 أرقام (تتجاهل فرق الكود الدولي)
+    const tail = (s) => String(s).replace(/[^\d]/g, "").slice(-9);
+    if (tail(b.phone) === tail(raw) && tail(raw).length >= 7) return true;
+    return false;
+  });
 }
 
 function isSlotTaken(doctorId, date, time, excludeBookingId = null) {
